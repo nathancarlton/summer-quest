@@ -16,7 +16,7 @@ A daily 15–30 minute CLI learning game for incoming 6th graders, aligned to Mi
 Requires Python 3.9+.
 
 ```bash
-git clone <your-repo>
+git clone (https://github.com/nathancarlton/summer-quest)
 cd summer-quest
 python3 -m venv .venv
 
