@@ -21,14 +21,41 @@ def prefetch(p):
     )
 
 
-def _offline_fill(p, prefs, n, la_count):
-    """A couple of fresh personalized questions, then fill from the bank.
-    Personalized questions are ephemeral (no id) so they can't collide with
-    the id-keyed bank questions."""
+def _finalize(p, prefs, questions, n, la_count):
+    """Enforce the 'no repeats' rule for EVERY source (pool AI or bank).
+
+    Each non-ephemeral question gets a content-hash id; any already mastered
+    (answered correctly before) is dropped, dups are removed, and the set is
+    topped up from the bank so a full quest of `n` still goes out. Ephemeral
+    personalized questions pass through untouched so they can recur.
+    """
+    off = p["offline"]
+    mastered = set(off["mastered"])
+    used, result = set(), []
+    for q in questions:
+        if q.get("ephemeral"):
+            result.append(q)
+            continue
+        qid = q.get("id") or bank.question_id(q)
+        q["id"] = qid
+        if qid in mastered or qid in used:
+            continue  # already aced, or a duplicate within this set
+        used.add(qid)
+        result.append(q)
+    if len(result) < n:  # dropped some — refill with fresh, unmastered bank Qs
+        for q in bank.sample(n - len(result), la_count, mastered | used, off["review"]):
+            if q["id"] not in used:
+                used.add(q["id"])
+                result.append(q)
+    return result[:n]
+
+
+def _offline_raw(p, prefs, n, la_count):
+    """Personalized recurring questions up front, then fill from the bank."""
     extras = [q for q in bank.personalized(prefs) if _valid(q)][: min(2, n)]
     off = p["offline"]
     filler = bank.sample(n - len(extras), la_count, off["mastered"], off["review"])
-    return (extras + filler)[:n]
+    return extras + filler
 
 
 def _fetch_questions(p, n):
@@ -41,10 +68,8 @@ def _fetch_questions(p, n):
     if pooled:
         valid = [q for q in pooled if _valid(q)]
         if len(valid) >= max(3, n // 2):
-            if len(valid) < n:
-                valid += _offline_fill(p, prefs, n - len(valid), la_count)
             prefetch(p)  # top the pool back up for next time
-            return valid[:n], can_grade
+            return _finalize(p, prefs, valid, n, la_count), can_grade
 
     # 2) Pool not ready yet (first run): serve the personalized offline bank
     #    instantly, and brew AI quests in the background for next time.
@@ -56,7 +81,7 @@ def _fetch_questions(p, n):
         )
     else:
         ui.console.print("[dim]⚠ No API key — using the offline question pack.[/]")
-    return _offline_fill(p, prefs, n, la_count), can_grade
+    return _finalize(p, prefs, _offline_raw(p, prefs, n, la_count), n, la_count), can_grade
 
 
 def _grade(q, answer, ai_available):
@@ -101,7 +126,9 @@ def run(p):
             if is_boss:
                 p["boss_wins"] += 1
         profile_mod.record_answer(p, q["category"], correct)
-        if q.get("id"):  # offline-bank question — track mastery for spaced review
+        # Track mastery for every real question (pool AI or bank) so a correct
+        # one never returns; ephemeral personalized questions are exempt.
+        if not q.get("ephemeral") and q.get("id"):
             profile_mod.record_offline(p, q["id"], correct)
         ui.show_result(correct, feedback, xp if correct else 0)
         results.append({"category": q["category"], "correct": correct})

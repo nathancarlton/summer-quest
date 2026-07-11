@@ -718,14 +718,16 @@ def valid_question(q):
     return True
 
 
-def _qid(q):
-    """Stable id for a bank question, derived from its text."""
-    return hashlib.sha1(q["question"].encode("utf-8")).hexdigest()[:10]
+def question_id(q):
+    """Stable id derived from question text — same scheme for bank AND AI
+    questions, so a verbatim AI repeat hashes to its bank twin's id and can be
+    recognized as already-seen."""
+    return hashlib.sha1(q["question"].strip().encode("utf-8")).hexdigest()[:10]
 
 
 # Give every bank question a stable id so progress can be tracked across sessions.
 for _q in BANK:
-    _q["id"] = _qid(_q)
+    _q["id"] = question_id(_q)
 
 
 def _order(pool, review):
@@ -782,6 +784,7 @@ def personalized(prefs):
                      f"You eat {eaten} {unit} in all. How many {unit} are left?"),
         "passage": None, "options": options, "answer": answer,
         "explanation": f"{servings} × {per} = {total} {unit} to start. {total} − {eaten} = {left} left.",
+        "ephemeral": True,  # recurring personalized fun — never id-tracked/retired
     }
 
     # Each passage is paired with an explanation that only cites cues actually
@@ -806,6 +809,7 @@ def personalized(prefs):
                     f"C. Scared and hiding", f"D. Hungry and grumpy"],
         "answer": "B",
         "explanation": explanation,
+        "ephemeral": True,  # recurring personalized fun — never id-tracked/retired
     }
     return [food_q, animal_q]
 
