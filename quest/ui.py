@@ -99,10 +99,10 @@ def session_summary(name, correct, total, xp_gained, streak_bonus, new_badges):
 
 def show_stats(p):
     hud(p)
-    table = Table(title="📊 Category Report Card", border_style="cyan")
-    table.add_column("Category")
-    table.add_column("Correct")
-    table.add_column("Accuracy")
+    table = Table(title="📊 Category Report Card", border_style="cyan", padding=(0, 1))
+    table.add_column("Category", width=24)
+    table.add_column("Correct", width=9)
+    table.add_column("Accuracy", width=10)
     for cat, s in p["categories"].items():
         if s["answered"]:
             acc = s["correct"] / s["answered"]
@@ -115,4 +115,4 @@ def show_stats(p):
     console.print(table)
     if p["badges"]:
         badges = "  ".join(profile_mod.BADGES[b][0] for b in p["badges"])
-        console.print(Panel.fit(badges, title="🏅 Badge Collection", border_style="yellow"))
+        console.print(Panel.fit(badges, title="Badge Collection", border_style="yellow"))
