@@ -16,7 +16,7 @@ BANK = [
                  "C. The dog barked, and, the cat ran away.",
                  "D. The dog, barked and the cat ran away."],
      "answer": "A",
-     "explanation": "When joining two complete sentences with 'and', the comma goes before it."},
+     "explanation": "When joining two complete sentences with 'and', the comma goes before the conjunction."},
     {"category": "reading", "type": "mc",
      "question": "What is the main idea of the passage?",
      "passage": "Octopuses are escape artists of the ocean. They can squeeze through any opening larger than their beak. Aquarium workers have found them in filter pipes, other tanks, and even on the floor heading toward the sea. Some aquariums now use special lids just for octopuses.",
