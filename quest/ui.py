@@ -11,12 +11,12 @@ from . import profile as profile_mod
 console = Console()
 
 CATEGORY_LABELS = {
-    "vocabulary": "📖 Vocabulary",
-    "grammar": "✏️  Grammar",
-    "reading": "🔍 Reading",
-    "figurative_language": "🎭 Figurative Language",
-    "writing_mechanics": "🛠️  Writing Mechanics",
-    "math_challenge": "🧮 Math Challenge",
+    "vocabulary": "Vocabulary 📖",
+    "grammar": "Grammar ✏️✏️",
+    "reading": "Reading 🔍",
+    "figurative_language": "Figurative Language 🎭",
+    "writing_mechanics": "Writing Mechanics 🛠️🛠️",
+    "math_challenge": "Math Challenge 🧮",
 }
 
 
@@ -100,7 +100,7 @@ def session_summary(name, correct, total, xp_gained, streak_bonus, new_badges):
 def show_stats(p):
     hud(p)
     table = Table(title="📊 Category Report Card", border_style="cyan", padding=(0, 1))
-    table.add_column("Category", width=24)
+    table.add_column("Category", width=28, no_wrap=True)
     table.add_column("Correct", width=9)
     table.add_column("Accuracy", width=10)
     for cat, s in p["categories"].items():
@@ -108,7 +108,7 @@ def show_stats(p):
             acc = s["correct"] / s["answered"]
             color = "green" if acc >= 0.8 else "yellow" if acc >= 0.6 else "red"
             table.add_row(
-                CATEGORY_LABELS.get(cat, cat),
+                Text(CATEGORY_LABELS.get(cat, cat)),
                 f"{s['correct']}/{s['answered']}",
                 f"[{color}]{acc:.0%}[/]",
             )
