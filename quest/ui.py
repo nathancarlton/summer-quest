@@ -98,29 +98,89 @@ def session_summary(name, correct, total, xp_gained, streak_bonus, new_badges):
         )
 
 
+def _display_width(text):
+    """Terminal-accurate display width.
+
+    An emoji variation sequence (a base glyph followed by U+FE0F) renders
+    as 2 columns on older macOS Terminal, but wcwidth counts the base as 1
+    and the selector as 0. We promote any narrow glyph carrying a VS16 to
+    width 2 so the count matches what the terminal actually draws.
+    """
+    width = 0
+    prev = 0
+    for ch in text:
+        if ch == "️":  # VS16 — forces emoji (wide) presentation
+            if prev == 1:
+                width += 1  # promote the preceding narrow glyph to 2 columns
+                prev = 2
+            continue
+        cw = wcwidth.wcwidth(ch)
+        cw = cw if cw and cw > 0 else 0
+        width += cw
+        prev = cw
+    return width
+
+
+def _pad(text, width):
+    return text + " " * max(0, width - _display_width(text))
+
+
+def _boxed(content, color, title=None):
+    """Rounded panel sized with the emoji-aware width, drawn by hand so
+    rich never re-measures (and thus never mis-sizes) the border."""
+    cw = _display_width(content)
+    body = max(cw, _display_width(title) + 1) if title else cw
+    inner = body + 2  # one space of padding on each side
+    if title:
+        top = "╭─ " + title + " " + "─" * (inner - _display_width(title) - 3) + "╮"
+    else:
+        top = "╭" + "─" * inner + "╮"
+    bar = f"[{color}]│[/]"
+    console.print(f"[{color}]{top}[/]", highlight=False, soft_wrap=True)
+    console.print(f"{bar} {_pad(content, body)} {bar}", highlight=False, soft_wrap=True)
+    console.print(f"[{color}]╰{'─' * inner}╯[/]", highlight=False, soft_wrap=True)
+
+
 def show_stats(p):
     hud(p)
-    table = Table(title="📊 Category Report Card", border_style="cyan", padding=(0, 1))
-    table.add_column("Category")
-    table.add_column("Correct")
-    table.add_column("Accuracy")
 
-    # Pad all labels to same visual width (accounting for emoji)
-    max_width = max(wcwidth.wcswidth(CATEGORY_LABELS.get(cat, cat)) for cat in p["categories"] if p["categories"][cat]["answered"])
-
+    headers = ("Category", "Correct", "Accuracy")
+    rows = []
     for cat, s in p["categories"].items():
-        if s["answered"]:
-            acc = s["correct"] / s["answered"]
-            color = "green" if acc >= 0.8 else "yellow" if acc >= 0.6 else "red"
-            label = CATEGORY_LABELS.get(cat, cat)
-            label_width = wcwidth.wcswidth(label)
-            label_padded = label + " " * (max_width - label_width)
-            table.add_row(
-                label_padded,
-                f"{s['correct']}/{s['answered']}",
-                f"[{color}]{acc:.0%}[/]",
-            )
-    console.print(table)
+        if not s["answered"]:
+            continue
+        acc = s["correct"] / s["answered"]
+        color = "green" if acc >= 0.8 else "yellow" if acc >= 0.6 else "red"
+        rows.append((CATEGORY_LABELS.get(cat, cat),
+                     f"{s['correct']}/{s['answered']}", f"{acc:.0%}", color))
+
+    if rows:
+        widths = [max(_display_width(headers[i]),
+                      *(_display_width(r[i]) for r in rows)) for i in range(3)]
+
+        def seg(fill, joiner):
+            return joiner.join(fill * (w + 2) for w in widths)
+
+        def data_row(cells, bar, color=None):
+            b = f"[cyan]{bar}[/]"
+            out = [b]
+            for i, c in enumerate(cells):
+                cell = (f"[{color}]{c}[/]" + " " * max(0, widths[i] - _display_width(c))
+                        if color and i == 2 else _pad(c, widths[i]))
+                out.append(f" {cell} {b}")
+            return "".join(out)
+
+        total = sum(widths) + 10
+        title = "📊 Category Report Card"
+        console.print(" " * max(0, (total - _display_width(title)) // 2) + f"[bold]{title}[/]",
+                      highlight=False, soft_wrap=True)
+        console.print(f"[cyan]┏{seg('━', '┳')}┓[/]", highlight=False, soft_wrap=True)
+        console.print(data_row(headers, "┃"), highlight=False, soft_wrap=True)
+        console.print(f"[cyan]┡{seg('━', '╇')}┩[/]", highlight=False, soft_wrap=True)
+        for r in rows:
+            console.print(data_row(r[:3], "│", color=r[3]), highlight=False, soft_wrap=True)
+        console.print(f"[cyan]└{seg('─', '┴')}┘[/]", highlight=False, soft_wrap=True)
+
     if p["badges"]:
-        badges = "  ".join(profile_mod.BADGES[b][0] for b in p["badges"])
-        console.print(Panel.fit(badges, title="Badge Collection", border_style="yellow"))
+        badges = "   ".join(profile_mod.BADGES[b][0] for b in p["badges"])
+        _boxed(badges, "yellow", title="Badge Collection")
