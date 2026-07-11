@@ -21,7 +21,8 @@ def _fetch_questions(p, n):
     except Exception:
         pass
     ui.console.print("[dim]⚠ AI unreachable — using offline question pack.[/]")
-    return bank.sample(n, la_count), False
+    off = p["offline"]
+    return bank.sample(n, la_count, off["mastered"], off["review"]), False
 
 
 def _valid(q):
@@ -77,6 +78,8 @@ def run(p):
             if is_boss:
                 p["boss_wins"] += 1
         profile_mod.record_answer(p, q["category"], correct)
+        if q.get("id"):  # offline-bank question — track mastery for spaced review
+            profile_mod.record_offline(p, q["id"], correct)
         ui.show_result(correct, feedback, xp if correct else 0)
         results.append({"category": q["category"], "correct": correct})
 
@@ -84,6 +87,7 @@ def run(p):
     p["xp"] += streak_bonus
     xp_gained += streak_bonus
 
+    p["sessions_completed"] = p.get("sessions_completed", 0) + 1
     new_badges = profile_mod.check_badges(p, correct_count == len(questions))
     profile_mod.save(p)
 

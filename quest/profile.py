@@ -7,6 +7,8 @@ from . import config
 
 BADGES = {
     "first_quest": ("🗺️  First Quest", "Complete your first session"),
+    "rising_star": ("🌱 Rising Star", "Complete your second quest"),
+    "getting_serious": ("🚀 Getting Serious", "Complete 5 quests"),
     "streak_3": ("🔥 On Fire", "3-day streak"),
     "streak_7": ("⚡ Unstoppable", "7-day streak"),
     "streak_14": ("🌟 Legend in Training", "14-day streak"),
@@ -27,8 +29,12 @@ def _default(name):
         "last_played": None,
         "badges": [],
         "boss_wins": 0,
+        "sessions_completed": 0,
         "totals": {"answered": 0, "correct": 0, "la_correct": 0, "math_correct": 0},
         "categories": {c: {"answered": 0, "correct": 0} for c in config.CATEGORIES},
+        # Offline mastery: `mastered` = answered correctly (never re-asked);
+        # `review` = missed, due to reappear in a future session until correct.
+        "offline": {"mastered": [], "review": []},
     }
 
 
@@ -37,6 +43,8 @@ def load():
         p = json.loads(config.PROFILE_PATH.read_text(encoding="utf-8"))
         for c in config.CATEGORIES:  # forward-compat for new categories
             p["categories"].setdefault(c, {"answered": 0, "correct": 0})
+        p.setdefault("sessions_completed", 0)  # forward-compat for older profiles
+        p.setdefault("offline", {"mastered": [], "review": []})
         return p
     return None
 
@@ -88,6 +96,19 @@ def record_answer(profile, category, correct):
         profile["totals"][key] += 1
 
 
+def record_offline(profile, qid, correct):
+    """Track mastery of an offline-bank question so it isn't re-asked once
+    answered correctly, and is queued for review if missed."""
+    off = profile["offline"]
+    if correct:
+        if qid not in off["mastered"]:
+            off["mastered"].append(qid)
+        if qid in off["review"]:
+            off["review"].remove(qid)
+    elif qid not in off["mastered"] and qid not in off["review"]:
+        off["review"].append(qid)
+
+
 def weak_categories(profile, k=2):
     """Lowest-accuracy LA categories with at least 3 attempts."""
     scored = []
@@ -101,9 +122,12 @@ def weak_categories(profile, k=2):
 def check_badges(profile, session_perfect):
     """Returns list of newly earned badge keys."""
     t = profile["totals"]
+    sessions = profile.get("sessions_completed", 0)
     earned = []
     checks = {
-        "first_quest": t["answered"] > 0,
+        "first_quest": sessions >= 1,
+        "rising_star": sessions >= 2,
+        "getting_serious": sessions >= 5,
         "streak_3": profile["streak"] >= 3,
         "streak_7": profile["streak"] >= 7,
         "streak_14": profile["streak"] >= 14,

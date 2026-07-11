@@ -1,4 +1,7 @@
 """Terminal UI built on rich (cross-platform, Windows-safe)."""
+import random
+
+from rich.align import Align
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TextColumn
@@ -9,6 +12,17 @@ from rich.text import Text
 from . import profile as profile_mod
 
 console = Console()
+
+# Rotating cheers so a correct answer feels like hitting the jackpot every time.
+CHEERS = [
+    "BOOM! NAILED IT!", "YOU'RE ON FIRE!", "ABSOLUTELY CRUSHED IT!",
+    "GENIUS ALERT!", "UNSTOPPABLE!", "LEGENDARY!", "JACKPOT!",
+    "BRAIN POWER!", "TOO EASY FOR YOU!", "SUPERSTAR!",
+]
+ENCOURAGE = [
+    "So close — you've totally got this!", "Not quite, but great try!",
+    "Keep going — mistakes help you level up!", "Almost! Learn it and smash it next time!",
+]
 
 CATEGORY_LABELS = {
     "vocabulary": "Vocabulary 📖",
@@ -72,12 +86,27 @@ def ask_question(i, total, q, is_boss):
 
 
 def show_result(correct, feedback, xp_gained):
+    console.print()
+    # Emoji live OUTSIDE the panel — nothing needs to align after them, so the
+    # box borders (which only wrap plain ASCII) stay perfectly straight.
     if correct:
-        console.print(f"\n[bold green]✅ Correct! +{xp_gained} XP[/]")
+        sparkle = "🎉  ✨  ⭐  🎊  🌟  ✨  🎉"
+        console.print(Align.center(f"[bold yellow]{sparkle}[/]"))
+        body = Text(justify="center")
+        body.append(random.choice(CHEERS) + "\n\n", style="bold magenta")
+        body.append(f"CORRECT!   +{xp_gained} XP", style="bold green")
+        console.print(Panel(Align.center(body), border_style="bold green",
+                            padding=(1, 4), expand=True))
+        console.print(Align.center(f"[bold yellow]{sparkle}[/]"))
+        if feedback:
+            console.print(Align.center(f"[italic green]{feedback}[/]"))
     else:
-        console.print("\n[bold red]❌ Not quite![/]")
-    if feedback:
-        console.print(f"[italic]{feedback}[/]")
+        console.print(Align.center("[bold red]💪   💪   💪[/]"))
+        body = Text(random.choice(ENCOURAGE), justify="center", style="bold red")
+        console.print(Panel(Align.center(body), border_style="red",
+                            padding=(1, 4), expand=True))
+        if feedback:
+            console.print(Align.center(f"[italic]{feedback}[/]"))
 
 
 def session_summary(name, correct, total, xp_gained, streak_bonus, new_badges):

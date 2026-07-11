@@ -1,4 +1,5 @@
 """Offline fallback question bank — used when the AI is unreachable."""
+import hashlib
 import random
 
 BANK = [
@@ -700,10 +701,43 @@ BANK = [
 ]
 
 
-def sample(n, la_count):
+def _qid(q):
+    """Stable id for a bank question, derived from its text."""
+    return hashlib.sha1(q["question"].encode("utf-8")).hexdigest()[:10]
+
+
+# Give every bank question a stable id so progress can be tracked across sessions.
+for _q in BANK:
+    _q["id"] = _qid(_q)
+
+
+def _order(pool, review):
+    """Questions due for review (missed in a past session) come first, then
+    fresh ones — each group shuffled so sessions still feel varied."""
+    due = [q for q in pool if q["id"] in review]
+    fresh = [q for q in pool if q["id"] not in review]
+    random.shuffle(due)
+    random.shuffle(fresh)
+    return due + fresh
+
+
+def sample(n, la_count, mastered=(), review=()):
+    """Pick a session's offline questions.
+
+    Skips questions already answered correctly (`mastered`) and surfaces
+    previously-missed questions (`review`) first, so a wrong answer comes
+    back in a *later* session until the kid gets it right. If everything in
+    a category is mastered, we fall back to the full pool so play continues.
+    """
+    mastered, review = set(mastered), set(review)
     la = [q for q in BANK if q["category"] != "math_challenge"]
     math = [q for q in BANK if q["category"] == "math_challenge"]
-    picked = random.sample(la, min(la_count, len(la)))
-    picked += random.sample(math, min(n - len(picked), len(math)))
+
+    def available(pool):
+        unmastered = [q for q in pool if q["id"] not in mastered]
+        return unmastered or pool
+
+    picked = _order(available(la), review)[:la_count]
+    picked += _order(available(math), review)[: n - len(picked)]
     random.shuffle(picked)
     return picked[:n]
