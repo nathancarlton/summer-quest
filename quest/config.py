@@ -54,3 +54,24 @@ CATEGORIES = {
     "writing_mechanics": "la",
     "math_challenge": "math",
 }
+
+# --- Personalization ---
+# One theme is chosen per session so questions feel like a single little world
+# (the way an AI-generated "lighthouse" thread felt during playtesting).
+THEMES = [
+    "a mysterious lighthouse", "a space station orbiting Mars",
+    "a hidden jungle temple", "a championship soccer match",
+    "a video game come to life", "a detective mystery downtown",
+    "a deep-sea submarine voyage", "a dragon's mountain lair",
+    "a summer carnival at night", "a robot's first day of school",
+]
+
+# Favorite food -> the small thing you count in a word problem. Falls back to
+# "pieces" for anything not listed, so any answer the kid gives still works.
+FOOD_UNITS = {
+    "pizza": "pepperoni slices", "cookies": "chocolate chips",
+    "tacos": "taco shells", "sushi": "sushi rolls", "burgers": "pickle slices",
+    "ice cream": "sprinkles", "pancakes": "blueberries", "donuts": "sprinkles",
+    "popcorn": "kernels", "spaghetti": "meatballs", "nachos": "cheese chips",
+}
+DEFAULT_FOOD_UNIT = "pieces"

@@ -10,8 +10,13 @@ def main():
     if p is None:
         name = Prompt.ask("[bold cyan]What's your name, adventurer?[/]").strip()
         p = profile_mod.create(name or "Adventurer")
+        p["prefs"] = ui.ask_preferences()
+        profile_mod.save(p)
         ui.console.print(f"\n[green]Welcome, {p['name']}! Your quest begins.[/]\n")
     else:
+        if not p.get("prefs"):  # returning kid from before personalization existed
+            p["prefs"] = ui.ask_preferences()
+            profile_mod.save(p)
         ui.console.print(f"\n[green]Welcome back, {p['name']}![/]\n")
 
     sent = sync.flush_queue()

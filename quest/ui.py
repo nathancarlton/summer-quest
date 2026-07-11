@@ -44,6 +44,27 @@ def banner():
     )
 
 
+def ask_preferences():
+    """Fun one-time interview so questions can star the kid's favorites."""
+    console.print(Panel(
+        "[bold]Let's make your quest YOURS![/] Answer a few quick questions so "
+        "your adventures star the things you love.",
+        border_style="magenta"))
+    animal = Prompt.ask("[cyan]What's your favorite animal?[/]", default="cat").strip()
+    food = Prompt.ask("[cyan]What's a food you love?[/]", default="pizza").strip()
+    theme = Prompt.ask(
+        "[cyan]Pick an adventure world[/]",
+        choices=["space", "ocean", "jungle", "sports", "mystery", "video games"],
+        default="mystery",
+    ).strip()
+    return {"animal": animal, "food": food, "theme": theme}
+
+
+def evaluating():
+    """Spinner shown while the AI judges a written answer."""
+    return console.status("[cyan]🤔 Evaluating your answer...[/]", spinner="dots")
+
+
 def hud(p):
     num, title, nxt = profile_mod.level_info(p["xp"])
     line = (

@@ -35,6 +35,8 @@ def _default(name):
         # Offline mastery: `mastered` = answered correctly (never re-asked);
         # `review` = missed, due to reappear in a future session until correct.
         "offline": {"mastered": [], "review": []},
+        # Favorites used to personalize questions (animal, food, theme/hobby).
+        "prefs": {},
     }
 
 
@@ -45,6 +47,7 @@ def load():
             p["categories"].setdefault(c, {"answered": 0, "correct": 0})
         p.setdefault("sessions_completed", 0)  # forward-compat for older profiles
         p.setdefault("offline", {"mastered": [], "review": []})
+        p.setdefault("prefs", {})
         return p
     return None
 

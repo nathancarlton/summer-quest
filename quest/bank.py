@@ -721,6 +721,73 @@ def _order(pool, review):
     return due + fresh
 
 
+def _mc_from_numbers(correct, distractors):
+    """Assemble a 4-option MC block from a correct number + wrong guesses,
+    returning (options, answer_letter). Pads with near-misses if needed."""
+    choices, k = [], 1
+    for v in [correct, *distractors]:
+        if v not in choices and v > 0:
+            choices.append(v)
+    while len(choices) < 4:
+        if (correct + k) not in choices:
+            choices.append(correct + k)
+        k += 1
+    choices = choices[:4]
+    random.shuffle(choices)
+    letters = ["A", "B", "C", "D"]
+    options = [f"{letters[i]}. {choices[i]}" for i in range(4)]
+    return options, letters[choices.index(correct)]
+
+
+def personalized(prefs):
+    """Build a couple of MC questions woven around the kid's favorites.
+
+    Instant, offline, and deliberately EPHEMERAL — no stable id, and the math
+    numbers are re-rolled every call, so these recur each session as fresh fun
+    rather than being tracked/retired by the spaced-repetition system.
+    """
+    from . import config
+
+    prefs = prefs or {}
+    food = (prefs.get("food") or "pizza").strip()
+    unit = config.FOOD_UNITS.get(food.lower(), config.DEFAULT_FOOD_UNIT)
+    animal = (prefs.get("animal") or "cat").strip()
+
+    per = random.choice([6, 7, 8, 9])
+    servings = random.choice([2, 3, 4])
+    eaten = random.choice([4, 5, 6, 7])
+    total = per * servings
+    left = total - eaten
+    options, answer = _mc_from_numbers(left, [total, eaten, left + per])
+    food_q = {
+        "category": "math_challenge", "type": "mc",
+        "question": (f"You get {servings} {food}, and each has {per} {unit}. "
+                     f"You eat {eaten} {unit} in all. How many {unit} are left?"),
+        "passage": None, "options": options, "answer": answer,
+        "explanation": f"{servings} × {per} = {total} {unit} to start. {total} − {eaten} = {left} left.",
+    }
+
+    passage = random.choice([
+        (f"A curious {animal} crept along the moonlit shore. Fireflies blinked near "
+         f"an old lighthouse as waves whispered against the rocks. The {animal} had "
+         f"never wandered so far from home, but tonight, adventure was too tempting to resist."),
+        (f"The {animal} pressed its nose to the frosty window. Outside, the first snow "
+         f"of winter spun down in lazy circles. With a happy leap, the {animal} darted "
+         f"for the door — some things are just too magical to watch from inside."),
+    ])
+    animal_q = {
+        "category": "reading", "type": "mc",
+        "question": f"What best describes the {animal} in the passage?",
+        "passage": passage,
+        "options": [f"A. Bored and sleepy", f"B. Curious and adventurous",
+                    f"C. Scared and hiding", f"D. Hungry and grumpy"],
+        "answer": "B",
+        "explanation": (f"The {animal} is drawn toward adventure ('too tempting', 'happy "
+                        f"leap') — that shows curiosity and eagerness, not fear or boredom."),
+    }
+    return [food_q, animal_q]
+
+
 def sample(n, la_count, mastered=(), review=()):
     """Pick a session's offline questions.
 

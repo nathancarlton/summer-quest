@@ -5,6 +5,7 @@ degrade gracefully: on any failure, callers fall back to the offline bank
 or local grading.
 """
 import json
+import random
 import re
 from concurrent.futures import ThreadPoolExecutor
 
@@ -60,10 +61,15 @@ GEN_SYSTEM = """You create engaging practice questions for a student entering \
 {grade}. Tone: fun, adventurous, encouraging — like a quest game. \
 Return ONLY a JSON array, no prose, no markdown fences."""
 
+# {theme} is shared across every batch in a session so the whole quest feels
+# like one little world; {favorites} folds in the kid's stated interests.
 GEN_LA_PROMPT = """Create {n} language arts questions targeting Minnesota MCA \
 reading/language skills, drawn from these categories: vocabulary, grammar, \
 reading, figurative_language, writing_mechanics.
 Emphasize these weaker skills where they fit: {weak}.
+
+Weave everything into ONE fun setting: {theme}. {favorites} Let details recur \
+so it feels like a connected story world, not random trivia.
 
 At least one question should be type "short" (a one-sentence written answer). \
 For any "reading" question, include a 3-5 sentence original passage in "passage".
@@ -73,19 +79,18 @@ Each JSON object:
 "type": "mc"|"short", "question": "...", \
 "passage": "..." or null, "options": ["A...","B...","C...","D..."] or null, \
 "answer": "correct option letter or model short answer", \
-"explanation": "kid-friendly why"}}
-
-Vary themes kids like: space, animals, sports, video games, mysteries."""
+"explanation": "kid-friendly why"}}"""
 
 GEN_MATH_PROMPT = """Create {n} genuinely hard math_challenge word problems for \
 a strong math student: ratios, rates, percentages, pre-algebra, multi-step logic.
 
+Set the problems in ONE fun world: {theme}. {favorites} Keep the numbers real \
+and the scenarios vivid.
+
 Each must be type "mc" with exactly 4 options. Each JSON object:
 {{"category": "math_challenge", "type": "mc", "question": "...", \
 "passage": null, "options": ["A...","B...","C...","D..."], \
-"answer": "correct option letter", "explanation": "kid-friendly worked solution"}}
-
-Vary themes kids like: space, animals, sports, video games, mysteries."""
+"answer": "correct option letter", "explanation": "kid-friendly worked solution"}}"""
 
 
 def _chunks(total, size):
@@ -108,16 +113,36 @@ def _gen_batch(prompt):
     return data
 
 
-def generate_questions(la_count, math_count, weak_categories):
+def _favorites_line(prefs):
+    """A sentence telling the model which favorites to work in (or empty)."""
+    prefs = prefs or {}
+    bits = []
+    if prefs.get("animal"):
+        bits.append(f"a {prefs['animal']}")
+    if prefs.get("food"):
+        bits.append(prefs["food"])
+    if prefs.get("theme"):
+        bits.append(prefs["theme"])
+    if not bits:
+        return ""
+    return f"Delight the student by working in their favorites: {', '.join(bits)}."
+
+
+def generate_questions(la_count, math_count, weak_categories, prefs=None, theme=None):
     """Generate a full question set via several small concurrent requests.
 
     Batching keeps each call short so the reasoning model's think-time runs
     in parallel; a single 10-question call takes ~2.5 min, batched ~1 min.
+    One shared `theme` threads through every batch for a coherent world.
     Partial results are fine — the caller validates and falls back if short.
     """
     weak = ", ".join(weak_categories) if weak_categories else "none identified yet"
-    prompts = [GEN_LA_PROMPT.format(n=c, weak=weak) for c in _chunks(la_count, BATCH_SIZE)]
-    prompts += [GEN_MATH_PROMPT.format(n=c) for c in _chunks(math_count, BATCH_SIZE)]
+    theme = theme or random.choice(config.THEMES)
+    favorites = _favorites_line(prefs)
+    prompts = [GEN_LA_PROMPT.format(n=c, weak=weak, theme=theme, favorites=favorites)
+               for c in _chunks(la_count, BATCH_SIZE)]
+    prompts += [GEN_MATH_PROMPT.format(n=c, theme=theme, favorites=favorites)
+                for c in _chunks(math_count, BATCH_SIZE)]
 
     questions = []
     with ThreadPoolExecutor(max_workers=len(prompts) or 1) as pool:

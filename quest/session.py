@@ -13,16 +13,26 @@ def _build_mix(n):
 
 def _fetch_questions(p, n):
     la_count, math_count = _build_mix(n)
+    prefs = p.get("prefs") or {}
     try:
-        qs = ai.generate_questions(la_count, math_count, profile_mod.weak_categories(p))
+        qs = ai.generate_questions(la_count, math_count,
+                                   profile_mod.weak_categories(p), prefs=prefs)
         valid = [q for q in qs if _valid(q)]
         if len(valid) >= max(3, n // 2):
+            if len(valid) < n:  # a batch fell short — top up from the bank
+                off = p["offline"]
+                valid += bank.sample(n - len(valid), la_count, off["mastered"], off["review"])
             return valid[:n], True
     except Exception:
         pass
     ui.console.print("[dim]⚠ AI unreachable — using offline question pack.[/]")
+    # A couple of personalized questions up front, then fill from the bank.
+    # Personalized questions are ephemeral (no id), so they can't collide with
+    # the id-keyed bank questions.
+    extras = [q for q in bank.personalized(prefs) if _valid(q)][:2]
     off = p["offline"]
-    return bank.sample(n, la_count, off["mastered"], off["review"]), False
+    filler = bank.sample(n - len(extras), la_count, off["mastered"], off["review"])
+    return (extras + filler)[:n], False
 
 
 def _valid(q):
@@ -43,7 +53,8 @@ def _grade(q, answer, ai_available):
         return correct, q.get("explanation", "")
     if ai_available:
         try:
-            return ai.grade_short_answer(q, answer)
+            with ui.evaluating():  # spinner while the AI judges the written answer
+                return ai.grade_short_answer(q, answer)
         except Exception:
             pass
     # Local fallback: keyword overlap with the model answer
