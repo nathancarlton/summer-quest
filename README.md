@@ -18,7 +18,7 @@ Requires Python 3.9+.
 ```bash
 git clone <your-repo>
 cd summer-quest
-python -m venv .venv
+python3 -m venv .venv
 
 # Mac/Linux:
 source .venv/bin/activate
@@ -33,7 +33,7 @@ cp .env.example .env      # Mac/Linux
 Edit `.env` and paste your MiniMax API key. Then run:
 
 ```bash
-python -m quest
+python3 -m quest
 ```
 
 First run asks for the kid's name and creates their profile (one profile per machine — one per twin).
@@ -83,4 +83,3 @@ The CLI was built so the backend swap is mechanical:
 
 - Never commit `.env` (already gitignored). Each twin's machine gets its own `.env` and its own `data/` profile.
 - The offline pack in `bank.py` is small by design — add to it if you expect long stretches without internet.
-# summer-quest
