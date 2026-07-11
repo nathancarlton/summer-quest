@@ -83,3 +83,4 @@ The CLI was built so the backend swap is mechanical:
 
 - Never commit `.env` (already gitignored). Each twin's machine gets its own `.env` and its own `data/` profile.
 - The offline pack in `bank.py` is small by design — add to it if you expect long stretches without internet.
+# summer-quest
