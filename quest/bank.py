@@ -2,6 +2,8 @@
 import hashlib
 import random
 
+from . import config
+
 BANK = [
     # ─── VOCABULARY ──────────────────────────────────────────────────────────
     {"category": "vocabulary", "type": "mc",
@@ -701,6 +703,21 @@ BANK = [
 ]
 
 
+def valid_question(q):
+    """Shape check shared by the live-AI path and the pre-generated pool."""
+    if not isinstance(q, dict):
+        return False
+    if q.get("category") not in config.CATEGORIES:
+        return False
+    if q.get("type") not in ("mc", "short"):
+        return False
+    if not q.get("question") or not q.get("answer"):
+        return False
+    if q["type"] == "mc" and len(q.get("options") or []) != 4:
+        return False
+    return True
+
+
 def _qid(q):
     """Stable id for a bank question, derived from its text."""
     return hashlib.sha1(q["question"].encode("utf-8")).hexdigest()[:10]
@@ -767,13 +784,19 @@ def personalized(prefs):
         "explanation": f"{servings} × {per} = {total} {unit} to start. {total} − {eaten} = {left} left.",
     }
 
-    passage = random.choice([
-        (f"A curious {animal} crept along the moonlit shore. Fireflies blinked near "
-         f"an old lighthouse as waves whispered against the rocks. The {animal} had "
-         f"never wandered so far from home, but tonight, adventure was too tempting to resist."),
-        (f"The {animal} pressed its nose to the frosty window. Outside, the first snow "
-         f"of winter spun down in lazy circles. With a happy leap, the {animal} darted "
-         f"for the door — some things are just too magical to watch from inside."),
+    # Each passage is paired with an explanation that only cites cues actually
+    # in THAT passage — so the "why" never references text the kid didn't see.
+    passage, explanation = random.choice([
+        ((f"A curious {animal} crept along the moonlit shore. Fireflies blinked near "
+          f"an old lighthouse as waves whispered against the rocks. The {animal} had "
+          f"never wandered so far from home, but tonight, adventure was too tempting to resist."),
+         (f"The {animal} creeps out to explore and finds the adventure 'too tempting to "
+          f"resist' — that shows curiosity and eagerness, not fear or boredom.")),
+        ((f"The {animal} pressed its nose to the frosty window. Outside, the first snow "
+          f"of winter spun down in lazy circles. With a happy leap, the {animal} darted "
+          f"for the door — some things are just too magical to watch from inside."),
+         (f"The {animal} makes a 'happy leap' toward the snow, too excited to stay inside "
+          f"— that shows eagerness and curiosity, not fear or boredom.")),
     ])
     animal_q = {
         "category": "reading", "type": "mc",
@@ -782,8 +805,7 @@ def personalized(prefs):
         "options": [f"A. Bored and sleepy", f"B. Curious and adventurous",
                     f"C. Scared and hiding", f"D. Hungry and grumpy"],
         "answer": "B",
-        "explanation": (f"The {animal} is drawn toward adventure ('too tempting', 'happy "
-                        f"leap') — that shows curiosity and eagerness, not fear or boredom."),
+        "explanation": explanation,
     }
     return [food_q, animal_q]
 

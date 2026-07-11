@@ -3,7 +3,9 @@ import json
 import math
 from datetime import datetime, timezone
 
-from . import ai, bank, config, profile as profile_mod, sync, ui
+from . import ai, bank, config, pool, profile as profile_mod, sync, ui
+
+_valid = bank.valid_question  # shared shape check
 
 
 def _build_mix(n):
@@ -11,40 +13,50 @@ def _build_mix(n):
     return la_count, n - la_count
 
 
+def prefetch(p):
+    """Start (or top up) the background pool so future quests load instantly."""
+    la_count, math_count = _build_mix(config.QUESTIONS_PER_SESSION)
+    pool.refill_in_background(
+        la_count, math_count, profile_mod.weak_categories(p), p.get("prefs") or {}
+    )
+
+
+def _offline_fill(p, prefs, n, la_count):
+    """A couple of fresh personalized questions, then fill from the bank.
+    Personalized questions are ephemeral (no id) so they can't collide with
+    the id-keyed bank questions."""
+    extras = [q for q in bank.personalized(prefs) if _valid(q)][: min(2, n)]
+    off = p["offline"]
+    filler = bank.sample(n - len(extras), la_count, off["mastered"], off["review"])
+    return (extras + filler)[:n]
+
+
 def _fetch_questions(p, n):
     la_count, math_count = _build_mix(n)
     prefs = p.get("prefs") or {}
-    try:
-        qs = ai.generate_questions(la_count, math_count,
-                                   profile_mod.weak_categories(p), prefs=prefs)
-        valid = [q for q in qs if _valid(q)]
+    can_grade = bool(config.MINIMAX_API_KEY)
+
+    # 1) Instant: a pre-generated themed session from the pool, if one is ready.
+    pooled = pool.take_session()
+    if pooled:
+        valid = [q for q in pooled if _valid(q)]
         if len(valid) >= max(3, n // 2):
-            if len(valid) < n:  # a batch fell short — top up from the bank
-                off = p["offline"]
-                valid += bank.sample(n - len(valid), la_count, off["mastered"], off["review"])
-            return valid[:n], True
-    except Exception:
-        pass
-    ui.console.print("[dim]⚠ AI unreachable — using offline question pack.[/]")
-    # A couple of personalized questions up front, then fill from the bank.
-    # Personalized questions are ephemeral (no id), so they can't collide with
-    # the id-keyed bank questions.
-    extras = [q for q in bank.personalized(prefs) if _valid(q)][:2]
-    off = p["offline"]
-    filler = bank.sample(n - len(extras), la_count, off["mastered"], off["review"])
-    return (extras + filler)[:n], False
+            if len(valid) < n:
+                valid += _offline_fill(p, prefs, n - len(valid), la_count)
+            prefetch(p)  # top the pool back up for next time
+            return valid[:n], can_grade
 
-
-def _valid(q):
-    if q.get("category") not in config.CATEGORIES:
-        return False
-    if q.get("type") not in ("mc", "short"):
-        return False
-    if not q.get("question") or not q.get("answer"):
-        return False
-    if q["type"] == "mc" and len(q.get("options") or []) != 4:
-        return False
-    return True
+    # 2) Pool not ready yet (first run): serve the personalized offline bank
+    #    instantly, and brew AI quests in the background for next time.
+    prefetch(p)
+    if can_grade:
+        ui.console.print(
+            "[dim]✨ Today's quest is ready — fresh AI adventures are brewing "
+            "in the background for next time.[/]"
+        )
+    else:
+        ui.console.print("[dim]⚠ No API key — using the offline question pack.[/]")
+    return _offline_fill(p, prefs, n, la_count), can_grade
 
 
 def _grade(q, answer, ai_available):

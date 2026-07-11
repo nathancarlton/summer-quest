@@ -55,20 +55,42 @@ First run asks for the learner's name and creates their profile (one profile per
 ```
 quest/
   __main__.py   # entry point / menu
-  config.py     # env, paths, XP/level constants
-  ai.py         # MiniMax client: question gen + short-answer grading
-  bank.py       # offline fallback question pack
-  profile.py    # XP, streaks, badges, category stats
+  config.py     # env, paths, XP/level constants, themes, food→unit map
+  ai.py         # MiniMax client: batched question gen + short-answer grading
+  bank.py       # offline fallback pack + personalized templates
+  pool.py       # pre-generated question pool + background refill
+  profile.py    # XP, streaks, badges, category stats, prefs, offline mastery
   session.py    # the daily quest loop
   sync.py       # sync stub (POST /api/v1/progress) + offline queue
   ui.py         # rich-based terminal UI
-data/           # gitignored: profile.json, history.jsonl, sync queue
+data/           # gitignored: profile.json, history.jsonl, pool.jsonl, sync queue
 ```
+
+## How questions load (instant, then fresh)
+
+The reasoning model takes ~1 min to write a full themed quest, so it never sits
+in the critical path:
+
+1. **Serve now:** each quest starts instantly — from a pre-generated themed
+   session in `data/pool.jsonl`, or (first run) from the personalized offline
+   bank in `bank.py`.
+2. **Brew next:** a background thread generates the *next* session's themed,
+   personalized questions into the pool while the kid plays. By the second
+   session, questions are AI-fresh **and** instant.
+3. **Judgement only:** MiniMax is used live only to grade written short answers
+   (shown with an "Evaluating your answer…" spinner).
+
+Questions answered correctly from the offline bank are retired; missed ones
+return in a **later** session until mastered (spaced repetition). A per-session
+**theme** (a lighthouse, a Mars station…) and the kid's **favorites** (favorite
+animal, favorite food → counting pepperoni/chocolate chips) thread through both
+AI and offline questions.
 
 ## Data & progress
 
-- `data/profile.json` — the learner's full state (XP, streak, badges, per-category accuracy)
+- `data/profile.json` — the learner's full state (XP, streak, badges, per-category accuracy, prefs, offline mastery)
 - `data/history.jsonl` — one line per completed session
+- `data/pool.jsonl` — queued pre-generated sessions (safe to delete; it refills)
 - Parent check-in: option **2 (My stats)** in the app shows the report card, or just read the JSON
 
 ## Path to the React + Render version

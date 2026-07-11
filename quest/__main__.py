@@ -23,6 +23,7 @@ def main():
     if sent:
         ui.console.print(f"[dim]☁ Synced {sent} queued session(s).[/]")
 
+    session.prefetch(p)  # warm the question pool in the background while they browse
     ui.hud(p)
 
     while True:
