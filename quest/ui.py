@@ -5,6 +5,7 @@ from rich.progress import BarColumn, Progress, TextColumn
 from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
+import wcwidth
 
 from . import profile as profile_mod
 
@@ -12,10 +13,10 @@ console = Console()
 
 CATEGORY_LABELS = {
     "vocabulary": "Vocabulary 📖",
-    "grammar": "Grammar ✏️✏️",
+    "grammar": "Grammar ✏️",
     "reading": "Reading 🔍",
     "figurative_language": "Figurative Language 🎭",
-    "writing_mechanics": "Writing Mechanics 🛠️🛠️",
+    "writing_mechanics": "Writing Mechanics 🛠️",
     "math_challenge": "Math Challenge 🧮",
 }
 
@@ -100,15 +101,22 @@ def session_summary(name, correct, total, xp_gained, streak_bonus, new_badges):
 def show_stats(p):
     hud(p)
     table = Table(title="📊 Category Report Card", border_style="cyan", padding=(0, 1))
-    table.add_column("Category", width=28, no_wrap=True)
-    table.add_column("Correct", width=9)
-    table.add_column("Accuracy", width=10)
+    table.add_column("Category")
+    table.add_column("Correct")
+    table.add_column("Accuracy")
+
+    # Pad all labels to same visual width (accounting for emoji)
+    max_width = max(wcwidth.wcswidth(CATEGORY_LABELS.get(cat, cat)) for cat in p["categories"] if p["categories"][cat]["answered"])
+
     for cat, s in p["categories"].items():
         if s["answered"]:
             acc = s["correct"] / s["answered"]
             color = "green" if acc >= 0.8 else "yellow" if acc >= 0.6 else "red"
+            label = CATEGORY_LABELS.get(cat, cat)
+            label_width = wcwidth.wcswidth(label)
+            label_padded = label + " " * (max_width - label_width)
             table.add_row(
-                Text(CATEGORY_LABELS.get(cat, cat)),
+                label_padded,
                 f"{s['correct']}/{s['answered']}",
                 f"[{color}]{acc:.0%}[/]",
             )
