@@ -720,10 +720,19 @@ def valid_question(q):
 
 
 def question_id(q):
-    """Stable id derived from question text — same scheme for bank AND AI
-    questions, so a verbatim AI repeat hashes to its bank twin's id and can be
-    recognized as already-seen."""
-    return hashlib.sha1(q["question"].strip().encode("utf-8")).hexdigest()[:10]
+    """Stable id derived from a question's text AND its passage.
+
+    Same scheme for bank AND AI questions, so a verbatim repeat hashes to the
+    same id and is recognized as already-seen. The passage is included so two
+    reading questions that share a generic stem ("What is the main idea of this
+    passage?") but have different passages get DIFFERENT ids — otherwise acing
+    one would wrongly retire all of them. Questions without a passage keep the
+    old text-only id, so existing mastery data stays valid."""
+    basis = (q.get("question") or "").strip()
+    passage = q.get("passage")
+    if passage:
+        basis += "\n" + str(passage).strip()
+    return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:10]
 
 
 _OPT_PREFIX = re.compile(r"^\s*[A-Da-d][.):]\s+")
@@ -780,9 +789,11 @@ def _mc_from_numbers(correct, distractors):
 def personalized(prefs):
     """Build a couple of MC questions woven around the kid's favorites.
 
-    Instant, offline, and deliberately EPHEMERAL — no stable id, and the math
-    numbers are re-rolled every call, so these recur each session as fresh fun
-    rather than being tracked/retired by the spaced-repetition system.
+    Instant and offline. The math question re-rolls its numbers every call so
+    it stays fresh forever; the reading question draws from several passages.
+    Both are normal id-tracked questions, so a specific one the kid already
+    aced won't come back (no more "the same panther question every time"),
+    while fresh variants keep appearing.
     """
     from . import config
 
@@ -803,32 +814,51 @@ def personalized(prefs):
                      f"You eat {eaten} {unit} in all. How many {unit} are left?"),
         "passage": None, "options": options, "answer": answer,
         "explanation": f"{servings} × {per} = {total} {unit} to start. {total} − {eaten} = {left} left.",
-        "ephemeral": True,  # recurring personalized fun — never id-tracked/retired
     }
 
-    # Each passage is paired with an explanation that only cites cues actually
-    # in THAT passage — so the "why" never references text the kid didn't see.
-    passage, explanation = random.choice([
+    # Several passages so the reading question stays varied. Each is paired with
+    # an explanation that only cites cues actually IN that passage.
+    passage, mood, explanation = random.choice([
         ((f"A curious {animal} crept along the moonlit shore. Fireflies blinked near "
           f"an old lighthouse as waves whispered against the rocks. The {animal} had "
           f"never wandered so far from home, but tonight, adventure was too tempting to resist."),
+         "adventurous",
          (f"The {animal} creeps out to explore and finds the adventure 'too tempting to "
           f"resist' — that shows curiosity and eagerness, not fear or boredom.")),
         ((f"The {animal} pressed its nose to the frosty window. Outside, the first snow "
           f"of winter spun down in lazy circles. With a happy leap, the {animal} darted "
           f"for the door — some things are just too magical to watch from inside."),
+         "adventurous",
          (f"The {animal} makes a 'happy leap' toward the snow, too excited to stay inside "
           f"— that shows eagerness and curiosity, not fear or boredom.")),
+        ((f"Thunder rumbled in the distance and the {animal} froze, ears flat. It slid "
+          f"under the porch and curled into the smallest ball it could, waiting for the "
+          f"storm to pass. Every flash of lightning made it tremble a little more."),
+         "scared",
+         (f"The {animal} freezes, hides under the porch, and trembles at the lightning — "
+          f"those are signs of fear, not curiosity or boredom.")),
+        ((f"The {animal} yawned so wide its whole body shook. It had chased bugs all "
+          f"afternoon, and now the warm patch of sunlight on the rug was simply "
+          f"irresistible. Within seconds, it was fast asleep."),
+         "sleepy",
+         (f"After chasing bugs all afternoon, the {animal} yawns and falls 'fast asleep' "
+          f"in the sun — that shows it is tired and sleepy.")),
+        ((f"The {animal}'s stomach growled loudly. It paced back and forth by the empty "
+          f"food bowl, meowing and pawing at anyone who walked past. Dinner was late, "
+          f"and the {animal} wanted everyone to know it."),
+         "hungry",
+         (f"The growling stomach, the empty bowl, and the pacing all show the {animal} "
+          f"is hungry — not sleepy or scared.")),
     ])
+    answer_letter = {"sleepy": "A", "adventurous": "B", "scared": "C", "hungry": "D"}
     animal_q = {
         "category": "reading", "type": "mc",
         "question": f"What best describes the {animal} in the passage?",
         "passage": passage,
-        "options": [f"A. Bored and sleepy", f"B. Curious and adventurous",
-                    f"C. Scared and hiding", f"D. Hungry and grumpy"],
-        "answer": "B",
+        "options": ["A. Bored and sleepy", "B. Curious and adventurous",
+                    "C. Scared and hiding", "D. Hungry and grumpy"],
+        "answer": answer_letter[mood],
         "explanation": explanation,
-        "ephemeral": True,  # recurring personalized fun — never id-tracked/retired
     }
     return [food_q, animal_q]
 

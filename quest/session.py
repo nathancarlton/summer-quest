@@ -22,20 +22,17 @@ def prefetch(p):
 
 
 def _finalize(p, prefs, questions, n, la_count):
-    """Enforce the 'no repeats' rule for EVERY source (pool AI or bank).
+    """Enforce the 'no repeats' rule for EVERY source (pool AI, bank, or
+    personalized).
 
-    Each non-ephemeral question gets a content-hash id; any already mastered
-    (answered correctly before) is dropped, dups are removed, and the set is
-    topped up from the bank so a full quest of `n` still goes out. Ephemeral
-    personalized questions pass through untouched so they can recur.
+    Each question gets a content-hash id (question text + passage); any already
+    mastered (answered correctly before) is dropped, dups are removed, and the
+    set is topped up from the bank so a full quest of `n` still goes out.
     """
     off = p["offline"]
     mastered = set(off["mastered"])
     used, result = set(), []
     for q in questions:
-        if q.get("ephemeral"):
-            result.append(q)
-            continue
         qid = q.get("id") or bank.question_id(q)
         q["id"] = qid
         if qid in mastered or qid in used:
@@ -127,9 +124,8 @@ def run(p):
             if is_boss:
                 p["boss_wins"] += 1
         profile_mod.record_answer(p, q["category"], correct)
-        # Track mastery for every real question (pool AI or bank) so a correct
-        # one never returns; ephemeral personalized questions are exempt.
-        if not q.get("ephemeral") and q.get("id"):
+        # Track mastery for every question so a correct one never returns.
+        if q.get("id"):
             profile_mod.record_offline(p, q["id"], correct)
         ui.show_result(correct, feedback, xp if correct else 0)
         results.append({"category": q["category"], "correct": correct})
