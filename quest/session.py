@@ -13,12 +13,8 @@ def _build_mix(n):
 
 def _fetch_questions(p, n):
     la_count, math_count = _build_mix(n)
-    mix = (
-        f"{la_count} language arts spread across vocabulary, grammar, reading, "
-        f"figurative_language, writing_mechanics; {math_count} math_challenge"
-    )
     try:
-        qs = ai.generate_questions(n, mix, profile_mod.weak_categories(p))
+        qs = ai.generate_questions(la_count, math_count, profile_mod.weak_categories(p))
         valid = [q for q in qs if _valid(q)]
         if len(valid) >= max(3, n // 2):
             return valid[:n], True

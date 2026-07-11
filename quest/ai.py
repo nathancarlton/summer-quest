@@ -6,19 +6,23 @@ or local grading.
 """
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
 from . import config
 
-TIMEOUT = 45
+TIMEOUT = 180
+BATCH_SIZE = 3  # questions per request — smaller batches run concurrently,
+#                 so the reasoning model's fixed think-time overlaps instead
+#                 of stacking up into one very long serial call.
 
 
 class AIUnavailable(Exception):
     pass
 
 
-def _chat(messages, temperature=0.8, max_tokens=2000):
+def _chat(messages, temperature=0.8, max_tokens=8000):
     if not config.MINIMAX_API_KEY:
         raise AIUnavailable("No MINIMAX_API_KEY set")
     resp = requests.post(
@@ -37,8 +41,11 @@ def _chat(messages, temperature=0.8, max_tokens=2000):
     )
     resp.raise_for_status()
     content = resp.json()["choices"][0]["message"]["content"]
-    # Strip <think>...</think> blocks some MiniMax models emit
-    return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+    # Strip <think>...</think> blocks some MiniMax models emit, including an
+    # unclosed block if the response was truncated mid-thought.
+    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+    content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL)
+    return content.strip()
 
 
 def _extract_json(text):
@@ -53,40 +60,81 @@ GEN_SYSTEM = """You create engaging practice questions for a student entering \
 {grade}. Tone: fun, adventurous, encouraging — like a quest game. \
 Return ONLY a JSON array, no prose, no markdown fences."""
 
-GEN_PROMPT = """Create {n} questions with this category mix: {mix}.
+GEN_LA_PROMPT = """Create {n} language arts questions targeting Minnesota MCA \
+reading/language skills, drawn from these categories: vocabulary, grammar, \
+reading, figurative_language, writing_mechanics.
+Emphasize these weaker skills where they fit: {weak}.
 
-Student context:
-- Strong at math: math_challenge questions should be genuinely hard word \
-problems (ratios, rates, pre-algebra, multi-step logic).
-- Needs growth in language arts: target Minnesota MCA reading/language skills. \
-Weakest categories lately (emphasize these skills within their categories): {weak}.
-
-Question types: "mc" (4 options) or "short" (one-sentence written answer). \
-Use "short" for at least 2 language arts questions. For "reading" questions, \
-include a 3-5 sentence original passage in the "passage" field.
+At least one question should be type "short" (a one-sentence written answer). \
+For any "reading" question, include a 3-5 sentence original passage in "passage".
 
 Each JSON object:
-{{"category": "...", "type": "mc"|"short", "question": "...", \
+{{"category": "vocabulary|grammar|reading|figurative_language|writing_mechanics", \
+"type": "mc"|"short", "question": "...", \
 "passage": "..." or null, "options": ["A...","B...","C...","D..."] or null, \
 "answer": "correct option letter or model short answer", \
 "explanation": "kid-friendly why"}}
 
-Make the LAST question a tough "boss battle" reading or figurative_language \
-question. Vary themes kids like: space, animals, sports, video games, mysteries."""
+Vary themes kids like: space, animals, sports, video games, mysteries."""
+
+GEN_MATH_PROMPT = """Create {n} genuinely hard math_challenge word problems for \
+a strong math student: ratios, rates, percentages, pre-algebra, multi-step logic.
+
+Each must be type "mc" with exactly 4 options. Each JSON object:
+{{"category": "math_challenge", "type": "mc", "question": "...", \
+"passage": null, "options": ["A...","B...","C...","D..."], \
+"answer": "correct option letter", "explanation": "kid-friendly worked solution"}}
+
+Vary themes kids like: space, animals, sports, video games, mysteries."""
 
 
-def generate_questions(n, mix, weak_categories):
-    weak = ", ".join(weak_categories) if weak_categories else "none identified yet"
+def _chunks(total, size):
+    """Split a count into batch sizes, e.g. _chunks(7, 3) -> [3, 3, 1]."""
+    return [min(size, total - i) for i in range(0, total, size)]
+
+
+def _gen_batch(prompt):
     text = _chat(
         [
             {"role": "system", "content": GEN_SYSTEM.format(grade=config.GRADE_LEVEL)},
-            {"role": "user", "content": GEN_PROMPT.format(n=n, mix=mix, weak=weak)},
+            {"role": "user", "content": prompt},
         ]
     )
-    questions = _extract_json(text)
-    if not isinstance(questions, list) or not questions:
+    data = _extract_json(text)
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
         raise ValueError("AI returned unexpected shape")
+    return data
+
+
+def generate_questions(la_count, math_count, weak_categories):
+    """Generate a full question set via several small concurrent requests.
+
+    Batching keeps each call short so the reasoning model's think-time runs
+    in parallel; a single 10-question call takes ~2.5 min, batched ~1 min.
+    Partial results are fine — the caller validates and falls back if short.
+    """
+    weak = ", ".join(weak_categories) if weak_categories else "none identified yet"
+    prompts = [GEN_LA_PROMPT.format(n=c, weak=weak) for c in _chunks(la_count, BATCH_SIZE)]
+    prompts += [GEN_MATH_PROMPT.format(n=c) for c in _chunks(math_count, BATCH_SIZE)]
+
+    questions = []
+    with ThreadPoolExecutor(max_workers=len(prompts) or 1) as pool:
+        for result in pool.map(lambda p: _safe_batch(p), prompts):
+            questions.extend(result)
+    if not questions:
+        raise ValueError("AI returned no questions")
     return questions
+
+
+def _safe_batch(prompt):
+    """Run one batch, swallowing its error so one slow/failed call doesn't
+    sink the whole set — we return what the other batches produced."""
+    try:
+        return _gen_batch(prompt)
+    except Exception:
+        return []
 
 
 GRADE_PROMPT = """A {grade} student answered a practice question.
@@ -118,7 +166,7 @@ def grade_short_answer(question, student_answer):
             }
         ],
         temperature=0.2,
-        max_tokens=400,
+        max_tokens=3000,
     )
     result = _extract_json(text)
     return bool(result.get("correct")), result.get("feedback", "")
