@@ -92,8 +92,8 @@ def session_summary(name, correct, total, xp_gained, streak_bonus, new_badges):
     for key in new_badges:
         emoji_name, desc = profile_mod.BADGES[key]
         console.print(
-            Panel(f"[bold yellow]NEW BADGE UNLOCKED![/]\n{emoji_name} — {desc}",
-                  border_style="yellow")
+            Panel.fit(f"[bold yellow]NEW BADGE UNLOCKED![/]\n{emoji_name} — {desc}",
+                      border_style="yellow")
         )
 
 
@@ -115,4 +115,4 @@ def show_stats(p):
     console.print(table)
     if p["badges"]:
         badges = "  ".join(profile_mod.BADGES[b][0] for b in p["badges"])
-        console.print(Panel(badges, title="🏅 Badge Collection", border_style="yellow"))
+        console.print(Panel.fit(badges, title="🏅 Badge Collection", border_style="yellow"))
