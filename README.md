@@ -36,7 +36,7 @@ Edit `.env` and paste your MiniMax API key. Then run:
 python3 -m quest
 ```
 
-First run asks for the kid's name and creates their profile (one profile per machine — one per twin).
+First run asks for the learner's name and creates their profile (one profile per machine — one per twin).
 
 ## Configuration (`.env`)
 
@@ -44,7 +44,7 @@ First run asks for the kid's name and creates their profile (one profile per mac
 |---|---|---|
 | `MINIMAX_API_KEY` | — | Your MiniMax key. Blank = offline mode. |
 | `MINIMAX_BASE_URL` | `https://api.minimax.io/v1` | OpenAI-compatible endpoint |
-| `MINIMAX_MODEL` | `MiniMax-M2.5` | Any MiniMax chat model |
+| `MINIMAX_MODEL` | `MiniMax-M2.7` | Any MiniMax chat model |
 | `SYNC_URL` | blank | Future backend base URL. Blank = sync disabled. |
 | `SYNC_TOKEN` | blank | Bearer token for the backend |
 | `QUESTIONS_PER_SESSION` | `10` | Session length |
@@ -67,7 +67,7 @@ data/           # gitignored: profile.json, history.jsonl, sync queue
 
 ## Data & progress
 
-- `data/profile.json` — the kid's full state (XP, streak, badges, per-category accuracy)
+- `data/profile.json` — the learner's full state (XP, streak, badges, per-category accuracy)
 - `data/history.jsonl` — one line per completed session
 - Parent check-in: option **2 (My stats)** in the app shows the report card, or just read the JSON
 
