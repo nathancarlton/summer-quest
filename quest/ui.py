@@ -5,7 +5,6 @@ from rich.progress import BarColumn, Progress, TextColumn
 from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
-import wcwidth
 
 from . import profile as profile_mod
 
@@ -98,47 +97,19 @@ def session_summary(name, correct, total, xp_gained, streak_bonus, new_badges):
         )
 
 
-def _display_width(text):
-    """Terminal-accurate display width.
+def _split_emoji(label):
+    """Split a "Name 📖" label into ("Name", "📖").
 
-    An emoji variation sequence (a base glyph followed by U+FE0F) renders
-    as 2 columns on older macOS Terminal, but wcwidth counts the base as 1
-    and the selector as 0. We promote any narrow glyph carrying a VS16 to
-    width 2 so the count matches what the terminal actually draws.
-    """
-    width = 0
-    prev = 0
-    for ch in text:
-        if ch == "️":  # VS16 — forces emoji (wide) presentation
-            if prev == 1:
-                width += 1  # promote the preceding narrow glyph to 2 columns
-                prev = 2
-            continue
-        cw = wcwidth.wcwidth(ch)
-        cw = cw if cw and cw > 0 else 0
-        width += cw
-        prev = cw
-    return width
-
-
-def _pad(text, width):
-    return text + " " * max(0, width - _display_width(text))
-
-
-def _boxed(content, color, title=None):
-    """Rounded panel sized with the emoji-aware width, drawn by hand so
-    rich never re-measures (and thus never mis-sizes) the border."""
-    cw = _display_width(content)
-    body = max(cw, _display_width(title) + 1) if title else cw
-    inner = body + 2  # one space of padding on each side
-    if title:
-        top = "╭─ " + title + " " + "─" * (inner - _display_width(title) - 3) + "╮"
-    else:
-        top = "╭" + "─" * inner + "╮"
-    bar = f"[{color}]│[/]"
-    console.print(f"[{color}]{top}[/]", highlight=False, soft_wrap=True)
-    console.print(f"{bar} {_pad(content, body)} {bar}", highlight=False, soft_wrap=True)
-    console.print(f"[{color}]╰{'─' * inner}╯[/]", highlight=False, soft_wrap=True)
+    macOS Terminal renders emoji at widths no width-table predicts, so we
+    keep them OUT of anything with a right border. Category labels put the
+    emoji last; badge labels put it first."""
+    head, _, tail = label.rpartition(" ")
+    if head and tail and not tail.isascii():
+        return head, tail
+    lead, _, rest = label.partition(" ")
+    if rest and not lead.isascii():
+        return rest.strip(), lead
+    return label, ""
 
 
 def show_stats(p):
@@ -151,36 +122,45 @@ def show_stats(p):
             continue
         acc = s["correct"] / s["answered"]
         color = "green" if acc >= 0.8 else "yellow" if acc >= 0.6 else "red"
-        rows.append((CATEGORY_LABELS.get(cat, cat),
-                     f"{s['correct']}/{s['answered']}", f"{acc:.0%}", color))
+        name, emoji = _split_emoji(CATEGORY_LABELS.get(cat, cat))
+        rows.append((name, f"{s['correct']}/{s['answered']}", f"{acc:.0%}", color, emoji))
 
     if rows:
-        widths = [max(_display_width(headers[i]),
-                      *(_display_width(r[i]) for r in rows)) for i in range(3)]
+        # Columns hold ASCII only, so plain len() is the true width and the
+        # borders always line up. Emoji ride outside the closing border.
+        widths = [max(len(headers[i]), *(len(r[i]) for r in rows)) for i in range(3)]
 
         def seg(fill, joiner):
             return joiner.join(fill * (w + 2) for w in widths)
 
-        def data_row(cells, bar, color=None):
+        def data_row(cells, bar, color=None, emoji=""):
             b = f"[cyan]{bar}[/]"
             out = [b]
             for i, c in enumerate(cells):
-                cell = (f"[{color}]{c}[/]" + " " * max(0, widths[i] - _display_width(c))
-                        if color and i == 2 else _pad(c, widths[i]))
+                cell = (f"[{color}]{c}[/]" + " " * (widths[i] - len(c))
+                        if color and i == 2 else c.ljust(widths[i]))
                 out.append(f" {cell} {b}")
+            if emoji:
+                out.append(f" {emoji}")
             return "".join(out)
 
-        total = sum(widths) + 10
-        title = "📊 Category Report Card"
-        console.print(" " * max(0, (total - _display_width(title)) // 2) + f"[bold]{title}[/]",
-                      highlight=False, soft_wrap=True)
         console.print(f"[cyan]┏{seg('━', '┳')}┓[/]", highlight=False, soft_wrap=True)
         console.print(data_row(headers, "┃"), highlight=False, soft_wrap=True)
         console.print(f"[cyan]┡{seg('━', '╇')}┩[/]", highlight=False, soft_wrap=True)
-        for r in rows:
-            console.print(data_row(r[:3], "│", color=r[3]), highlight=False, soft_wrap=True)
+        for name, correct, acc, color, emoji in rows:
+            console.print(data_row((name, correct, acc), "│", color=color, emoji=emoji),
+                          highlight=False, soft_wrap=True)
         console.print(f"[cyan]└{seg('─', '┴')}┘[/]", highlight=False, soft_wrap=True)
 
     if p["badges"]:
-        badges = "   ".join(profile_mod.BADGES[b][0] for b in p["badges"])
-        _boxed(badges, "yellow", title="Badge Collection")
+        parsed = [_split_emoji(profile_mod.BADGES[b][0]) for b in p["badges"]]
+        title = "Badge Collection"
+        body = max([len(name) for name, _ in parsed] + [len(title) + 1])
+        inner = body + 2
+        top = "╭─ " + title + " " + "─" * (inner - len(title) - 3) + "╮"
+        console.print(f"[yellow]{top}[/]", highlight=False, soft_wrap=True)
+        for name, emoji in parsed:
+            tail = f" {emoji}" if emoji else ""
+            console.print(f"[yellow]│[/] {name.ljust(body)} [yellow]│[/]{tail}",
+                          highlight=False, soft_wrap=True)
+        console.print(f"[yellow]╰{'─' * inner}╯[/]", highlight=False, soft_wrap=True)
