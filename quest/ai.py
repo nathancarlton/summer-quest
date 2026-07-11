@@ -7,7 +7,7 @@ or local grading.
 import json
 import random
 import re
-from concurrent.futures import ThreadPoolExecutor
+import threading
 
 import requests
 
@@ -100,6 +100,27 @@ def _chunks(total, size):
     return [min(size, total - i) for i in range(0, total, size)]
 
 
+def _parallel_map(fn, items):
+    """Run fn over items on daemon threads and collect results in order.
+
+    Deliberately NOT ThreadPoolExecutor: its atexit hook joins worker threads
+    on interpreter exit, which would hang a quit while a background refill has
+    an AI request in flight. Daemon threads are simply dropped on exit.
+    """
+    results = [None] * len(items)
+
+    def _run(i, item):
+        results[i] = fn(item)
+
+    threads = [threading.Thread(target=_run, args=(i, item), daemon=True)
+               for i, item in enumerate(items)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return results
+
+
 # Safety net for spatial references that slip past the prompt: "read the
 # sentence below" -> "read the sentence". Anchored to a content noun so it
 # won't touch legitimate math like "temperatures below zero".
@@ -164,9 +185,8 @@ def generate_questions(la_count, math_count, weak_categories, prefs=None, theme=
                 for c in _chunks(math_count, BATCH_SIZE)]
 
     questions = []
-    with ThreadPoolExecutor(max_workers=len(prompts) or 1) as pool:
-        for result in pool.map(lambda p: _safe_batch(p), prompts):
-            questions.extend(result)
+    for result in _parallel_map(_safe_batch, prompts):
+        questions.extend(result or [])
     if not questions:
         raise ValueError("AI returned no questions")
     return questions
