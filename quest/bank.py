@@ -1,6 +1,7 @@
 """Offline fallback question bank — used when the AI is unreachable."""
 import hashlib
 import random
+import re
 
 from . import config
 
@@ -723,6 +724,24 @@ def question_id(q):
     questions, so a verbatim AI repeat hashes to its bank twin's id and can be
     recognized as already-seen."""
     return hashlib.sha1(q["question"].strip().encode("utf-8")).hexdigest()[:10]
+
+
+_OPT_PREFIX = re.compile(r"^\s*[A-Da-d][.):]\s+")
+
+
+def ensure_option_letters(q):
+    """Guarantee MC options read 'A. ...', 'B. ...' by position.
+
+    The AI sometimes returns bare options with no letters, leaving the kid
+    nothing to map their a/b/c/d answer to. Idempotent — strips any existing
+    prefix first, so re-labeling never doubles up."""
+    if q.get("type") == "mc" and q.get("options"):
+        letters = "ABCD"
+        q["options"] = [
+            f"{letters[i]}. {_OPT_PREFIX.sub('', str(opt)).strip()}"
+            for i, opt in enumerate(q["options"][:4])
+        ]
+    return q
 
 
 # Give every bank question a stable id so progress can be tracked across sessions.

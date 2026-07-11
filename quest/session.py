@@ -47,7 +47,8 @@ def _finalize(p, prefs, questions, n, la_count):
             if q["id"] not in used:
                 used.add(q["id"])
                 result.append(q)
-    return result[:n]
+    # Guarantee every MC option shows its A./B./C./D. letter (the AI omits them).
+    return [bank.ensure_option_letters(q) for q in result[:n]]
 
 
 def _offline_raw(p, prefs, n, la_count):
