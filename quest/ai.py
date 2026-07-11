@@ -59,6 +59,8 @@ def _extract_json(text):
 
 GEN_SYSTEM = """You create engaging practice questions for a student entering \
 {grade}. Tone: fun, adventurous, encouraging — like a quest game. \
+Never say where things appear on screen (no "below", "above", "following", \
+"to the right"); the layout varies, so write "this sentence" or "the passage". \
 Return ONLY a JSON array, no prose, no markdown fences."""
 
 # {theme} is shared across every batch in a session so the whole quest feels
@@ -98,6 +100,23 @@ def _chunks(total, size):
     return [min(size, total - i) for i in range(0, total, size)]
 
 
+# Safety net for spatial references that slip past the prompt: "read the
+# sentence below" -> "read the sentence". Anchored to a content noun so it
+# won't touch legitimate math like "temperatures below zero".
+_SPATIAL_RE = re.compile(
+    r"\b(sentence|passage|paragraph|text|story|poem|words?|excerpt)\s+"
+    r"(?:down\s+below|below|above)\b",
+    re.IGNORECASE,
+)
+
+
+def _sanitize(q):
+    for field in ("question", "explanation"):
+        if isinstance(q.get(field), str):
+            q[field] = _SPATIAL_RE.sub(r"\1", q[field])
+    return q
+
+
 def _gen_batch(prompt):
     text = _chat(
         [
@@ -110,7 +129,7 @@ def _gen_batch(prompt):
         data = [data]
     if not isinstance(data, list):
         raise ValueError("AI returned unexpected shape")
-    return data
+    return [_sanitize(q) for q in data if isinstance(q, dict)]
 
 
 def _favorites_line(prefs):
@@ -162,31 +181,53 @@ def _safe_batch(prompt):
         return []
 
 
-GRADE_PROMPT = """A {grade} student answered a practice question.
+# Writing/mechanics answers are graded exactly; meaning-based answers generously.
+_MECHANICS = {"writing_mechanics", "grammar"}
+
+_RUBRIC_EXACT = (
+    "This is a WRITING-MECHANICS task. Compare the student's answer to the model "
+    "word by word. Check capitalization, punctuation, spelling, AND every word — "
+    "a missing or changed word (like a dropped 'the') is an error. Mark correct=true "
+    "ONLY if all mechanics and wording are right; otherwise correct=false."
+)
+_RUBRIC_MEANING = (
+    "Grade generously on MEANING — accept reasonable paraphrases and partial "
+    "understanding. Focus on whether the idea is right, not exact wording."
+)
+
+GRADE_PROMPT = """A {grade} student answered a practice question. Category: {category}.
 
 Question: {question}
-{passage_block}Expected answer (model answer): {expected}
+{passage_block}Model answer: {expected}
 Student's answer: {student}
 
-Grade generously — accept reasonable paraphrases and partial understanding. \
-Return ONLY JSON: {{"correct": true|false, "feedback": "1-2 encouraging, \
-specific sentences. If wrong, teach the idea simply."}}"""
+{rubric}
+
+Read the student's answer CAREFULLY and completely — do not overlook any mistake. \
+Be warm and encouraging, but honest: name EVERY specific fix needed so nothing \
+slips by (if you say "great job", still list what's wrong).
+Return ONLY JSON: {{"correct": true|false, "feedback": "2-3 encouraging, specific \
+sentences that celebrate what's right and clearly point out each thing to fix."}}"""
 
 
 def grade_short_answer(question, student_answer):
     passage_block = (
         f"Passage: {question['passage']}\n" if question.get("passage") else ""
     )
+    category = question.get("category", "")
+    rubric = _RUBRIC_EXACT if category in _MECHANICS else _RUBRIC_MEANING
     text = _chat(
         [
             {
                 "role": "user",
                 "content": GRADE_PROMPT.format(
                     grade=config.GRADE_LEVEL,
+                    category=category or "short answer",
                     question=question["question"],
                     passage_block=passage_block,
                     expected=question["answer"],
                     student=student_answer,
+                    rubric=rubric,
                 ),
             }
         ],
