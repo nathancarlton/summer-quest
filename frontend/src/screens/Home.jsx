@@ -1,3 +1,5 @@
+import ThemePicker from '../ThemePicker.jsx'
+
 // The HUD from ui.py: XP, level, streak, badges, progress to next level.
 export function Hud({ player }) {
   const { level } = player
@@ -46,6 +48,7 @@ export default function Home({ player, onStart, onStats, onSwitch }) {
       <button className="link" onClick={onSwitch}>
         Not {player.name}? Switch player
       </button>
+      <ThemePicker />
     </div>
   )
 }

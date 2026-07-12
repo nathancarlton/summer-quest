@@ -3,21 +3,102 @@
   margin: 0;
 }
 
+/* ─── Themes ───
+   Every surface reads from these variables; a theme is just a new palette.
+   Sunset is the default; others apply via data-theme on <html>. */
 :root {
+  --bg: linear-gradient(160deg, #fde68a 0%, #f9a8d4 45%, #a5b4fc 100%);
+  --card: #ffffff;
   --ink: #2d2450;
   --muted: #7a72a0;
-  --card: #ffffff;
   --accent: #7c3aed;
+  --accent-hi: #a855f7;
   --accent-2: #f59e0b;
+  --btn-bg: #f6f4ff;
+  --surface: #faf9ff;
+  --border: rgba(45, 36, 80, 0.12);
+  --track: rgba(45, 36, 80, 0.1);
   --good: #16a34a;
+  --warn: #d97706;
   --bad: #dc2626;
+  --win-bg: #f0fdf4;
+  --win-border: #86efac;
+  --lose-bg: #fef2f2;
+  --lose-border: #fecaca;
+  --passage-bg: #eef6ff;
+  --passage-border: #bfdbfe;
+  --gold-bg: #fffbeb;
+  --gold-border: #fcd34d;
+  --gold-ink: #b45309;
+  --logo-shadow: rgba(255, 255, 255, 0.6);
+  --shadow: rgba(45, 36, 80, 0.18);
   --radius: 18px;
+}
+
+:root[data-theme='ocean'] {
+  --bg: linear-gradient(160deg, #a5f3fc 0%, #7dd3fc 45%, #818cf8 100%);
+  --ink: #123a5c;
+  --muted: #5b7fa6;
+  --accent: #0284c7;
+  --accent-hi: #38bdf8;
+  --accent-2: #06b6d4;
+  --btn-bg: #eff8ff;
+  --surface: #f5fbff;
+  --border: rgba(18, 58, 92, 0.14);
+  --track: rgba(18, 58, 92, 0.1);
+  --passage-bg: #ecfeff;
+  --passage-border: #a5f3fc;
+  --shadow: rgba(18, 58, 92, 0.2);
+}
+
+:root[data-theme='forest'] {
+  --bg: linear-gradient(160deg, #d9f99d 0%, #86efac 45%, #5eead4 100%);
+  --ink: #1c3a2a;
+  --muted: #5f8a70;
+  --accent: #059669;
+  --accent-hi: #34d399;
+  --accent-2: #84cc16;
+  --btn-bg: #f0fdf4;
+  --surface: #f4fdf7;
+  --border: rgba(28, 58, 42, 0.14);
+  --track: rgba(28, 58, 42, 0.1);
+  --passage-bg: #ecfdf5;
+  --passage-border: #a7f3d0;
+  --shadow: rgba(28, 58, 42, 0.2);
+}
+
+:root[data-theme='midnight'] {
+  --bg: linear-gradient(160deg, #1e1b4b 0%, #312e81 45%, #4c1d95 100%);
+  --card: #241f4a;
+  --ink: #ece9ff;
+  --muted: #a5a0d6;
+  --accent: #7c3aed;
+  --accent-hi: #a855f7;
+  --accent-2: #fbbf24;
+  --btn-bg: #2f2a5e;
+  --surface: #2a2456;
+  --border: rgba(236, 233, 255, 0.16);
+  --track: rgba(236, 233, 255, 0.15);
+  --good: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --win-bg: #12352a;
+  --win-border: #1f6b4a;
+  --lose-bg: #3a1c26;
+  --lose-border: #7f2f42;
+  --passage-bg: #1d2c4f;
+  --passage-border: #35528c;
+  --gold-bg: #3a2f14;
+  --gold-border: #a17c1a;
+  --gold-ink: #fcd34d;
+  --logo-shadow: rgba(0, 0, 0, 0.35);
+  --shadow: rgba(0, 0, 0, 0.4);
 }
 
 body {
   font-family: 'Fredoka', system-ui, sans-serif;
   color: var(--ink);
-  background: linear-gradient(160deg, #fde68a 0%, #f9a8d4 45%, #a5b4fc 100%);
+  background: var(--bg);
   background-attachment: fixed;
   min-height: 100vh;
 }
@@ -41,7 +122,7 @@ body {
 .logo {
   font-size: 2.2rem;
   font-weight: 700;
-  text-shadow: 0 2px 0 rgba(255, 255, 255, 0.6);
+  text-shadow: 0 2px 0 var(--logo-shadow);
 }
 
 .tagline {
@@ -55,7 +136,7 @@ body {
   border-radius: var(--radius);
   padding: 22px;
   width: 100%;
-  box-shadow: 0 10px 30px rgba(45, 36, 80, 0.18);
+  box-shadow: 0 10px 30px var(--shadow);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -93,8 +174,8 @@ body {
 .btn {
   font: inherit;
   font-weight: 500;
-  border: 2px solid rgba(45, 36, 80, 0.12);
-  background: #f6f4ff;
+  border: 2px solid var(--border);
+  background: var(--btn-bg);
   color: var(--ink);
   border-radius: 14px;
   padding: 12px 18px;
@@ -104,7 +185,7 @@ body {
 
 .btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(45, 36, 80, 0.15);
+  box-shadow: 0 4px 12px var(--shadow);
 }
 
 .btn:disabled {
@@ -113,7 +194,7 @@ body {
 }
 
 .btn.primary {
-  background: linear-gradient(135deg, var(--accent), #a855f7);
+  background: linear-gradient(135deg, var(--accent), var(--accent-hi));
   color: white;
   border: none;
 }
@@ -164,6 +245,27 @@ body {
   font-size: 0.9rem;
 }
 
+/* ─── Theme picker ─── */
+.theme-picker {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.theme-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  padding: 0;
+}
+
+.theme-dot-on {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ─── Forms ─── */
 label,
 .label {
@@ -177,11 +279,18 @@ label,
 input,
 textarea {
   font: inherit;
+  color: var(--ink);
+  background: var(--btn-bg);
   padding: 11px 14px;
   border-radius: 12px;
-  border: 2px solid rgba(45, 36, 80, 0.15);
+  border: 2px solid var(--border);
   outline: none;
   resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
 }
 
 input:focus,
@@ -197,10 +306,11 @@ textarea:focus {
 
 .chip {
   font: inherit;
+  color: var(--ink);
   padding: 8px 14px;
   border-radius: 999px;
-  border: 2px solid rgba(45, 36, 80, 0.15);
-  background: white;
+  border: 2px solid var(--border);
+  background: var(--btn-bg);
   cursor: pointer;
 }
 
@@ -215,8 +325,8 @@ textarea:focus {
   padding: 14px;
   gap: 10px;
   box-shadow: none;
-  border: 2px solid rgba(45, 36, 80, 0.08);
-  background: #faf9ff;
+  border: 2px solid var(--border);
+  background: var(--surface);
 }
 
 .hud-row {
@@ -243,7 +353,7 @@ textarea:focus {
 .progress {
   height: 12px;
   border-radius: 999px;
-  background: rgba(45, 36, 80, 0.1);
+  background: var(--track);
   overflow: hidden;
 }
 
@@ -282,8 +392,8 @@ textarea:focus {
 }
 
 .passage {
-  background: #eef6ff;
-  border: 2px solid #bfdbfe;
+  background: var(--passage-bg);
+  border: 2px solid var(--passage-border);
   border-radius: 14px;
   padding: 14px;
   text-align: left;
@@ -311,13 +421,13 @@ textarea:focus {
 }
 
 .result.win {
-  background: #f0fdf4;
-  border: 2px solid #86efac;
+  background: var(--win-bg);
+  border: 2px solid var(--win-border);
 }
 
 .result.lose {
-  background: #fef2f2;
-  border: 2px solid #fecaca;
+  background: var(--lose-bg);
+  border: 2px solid var(--lose-border);
 }
 
 .result-head {
@@ -362,7 +472,7 @@ textarea:focus {
 .stats-table td,
 .stats-table th {
   padding: 8px 10px;
-  border-bottom: 1px solid rgba(45, 36, 80, 0.1);
+  border-bottom: 1px solid var(--border);
   text-align: left;
 }
 
@@ -383,7 +493,7 @@ textarea:focus {
 }
 
 .ok {
-  color: #d97706;
+  color: var(--warn);
   font-weight: 700;
 }
 
@@ -394,19 +504,19 @@ textarea:focus {
 
 /* ─── Badges ─── */
 .badge-unlock {
-  background: #fffbeb;
-  border: 2px solid #fcd34d;
+  background: var(--gold-bg);
+  border: 2px solid var(--gold-border);
   border-radius: 14px;
   padding: 12px;
 }
 
 .badge-title {
   font-weight: 700;
-  color: #b45309;
+  color: var(--gold-ink);
 }
 
 .badge-box {
-  border: 2px dashed #fcd34d;
+  border: 2px dashed var(--gold-border);
   border-radius: 14px;
   padding: 12px;
   display: flex;

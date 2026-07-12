@@ -1,3 +1,5 @@
+import ThemePicker from '../ThemePicker.jsx'
+
 export default function PickPlayer({ roster, onPick, onNew }) {
   return (
     <div className="shell center">
@@ -18,6 +20,7 @@ export default function PickPlayer({ roster, onPick, onNew }) {
           </button>
         </div>
       </div>
+      <ThemePicker />
     </div>
   )
 }
