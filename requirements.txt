@@ -1,3 +1,9 @@
+# Shared by the CLI (quest/) and the API backend (backend/)
 requests>=2.31
 python-dotenv>=1.0
 rich>=13.7
+
+# Backend (FastAPI on Koyeb/Zeabur)
+fastapi>=0.115
+uvicorn>=0.30
+psycopg[binary]>=3.2   # used only when DATABASE_URL is set

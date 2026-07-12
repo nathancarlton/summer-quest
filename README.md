@@ -1,6 +1,11 @@
 # 🗺️ Summer Quest
 
-A daily 15–30 minute CLI learning game for incoming 6th graders, aligned to Minnesota MCA skills. Weighted toward **language arts** (70%) with hard **math challenges** (30%). Questions are generated fresh every day by **MiniMax**, with an offline question pack as fallback.
+A daily 15–30 minute learning game for incoming 6th graders, aligned to Minnesota MCA skills. Weighted toward **language arts** (70%) with hard **math challenges** (30%). Questions are generated fresh every day by **MiniMax**, with an offline question pack as fallback.
+
+Comes in two forms that share the same game engine:
+
+- **CLI** (`quest/`) — the original terminal game, one profile per machine
+- **Web** — a React frontend (`frontend/`, deploy to **Vercel**) talking to a FastAPI backend (`backend/`, deploy to **Koyeb** or **Zeabur**), with multiple player profiles per device and the MiniMax key kept server-side
 
 ## Features
 
@@ -45,7 +50,7 @@ First run asks for the learner's name and creates their profile (one profile per
 | `MINIMAX_API_KEY` | — | Your MiniMax key. Blank = offline mode. |
 | `MINIMAX_BASE_URL` | `https://api.minimax.io/v1` | OpenAI-compatible endpoint |
 | `MINIMAX_MODEL` | `MiniMax-M2.7` | Any MiniMax chat model |
-| `SYNC_URL` | blank | Future backend base URL. Blank = sync disabled. |
+| `SYNC_URL` | blank | Backend base URL for CLI sync. Blank = sync disabled. |
 | `SYNC_TOKEN` | blank | Bearer token for the backend |
 | `QUESTIONS_PER_SESSION` | `10` | Session length |
 | `LA_RATIO` | `0.7` | Language arts share of each session |
@@ -53,17 +58,24 @@ First run asks for the learner's name and creates their profile (one profile per
 ## Project layout
 
 ```
-quest/
-  __main__.py   # entry point / menu
-  config.py     # env, paths, XP/level constants, themes, food→unit map
-  ai.py         # MiniMax client: batched question gen + short-answer grading
-  bank.py       # offline fallback pack + personalized templates
-  pool.py       # pre-generated question pool + background refill
-  profile.py    # XP, streaks, badges, category stats, prefs, offline mastery
-  session.py    # the daily quest loop
-  sync.py       # sync stub (POST /api/v1/progress) + offline queue
-  ui.py         # rich-based terminal UI
-data/           # gitignored: profile.json, history.jsonl, pool.jsonl, sync queue
+quest/            # shared game engine + the CLI
+  __main__.py     # CLI entry point / menu
+  config.py       # env, paths, XP/level constants, themes, food→unit map
+  ai.py           # MiniMax client: batched question gen + short-answer grading
+  bank.py         # offline fallback pack + personalized templates
+  pool.py         # CLI's pre-generated question pool + background refill
+  profile.py      # XP, streaks, badges, category stats, prefs, offline mastery
+  session.py      # the CLI's daily quest loop
+  sync.py         # CLI→backend sync (POST /api/v1/progress) + offline queue
+  ui.py           # rich-based terminal UI
+backend/app/      # FastAPI backend (imports quest/ directly — no duplication)
+  main.py         # routes + CORS
+  engine.py       # the quest loop as HTTP: start → answer × n → complete
+  storage.py      # SQLite locally, Postgres via DATABASE_URL in production
+frontend/         # React (Vite) app for Vercel
+  src/screens/    # PickPlayer, Onboarding, Home (HUD), Quest, Summary, Stats
+Procfile          # boots the backend on Koyeb/Zeabur: uvicorn ... --port $PORT
+data/             # gitignored: CLI profile + history, local SQLite db
 ```
 
 ## How questions load (instant, then fresh)
@@ -93,13 +105,67 @@ AI and offline questions.
 - `data/pool.jsonl` — queued pre-generated sessions (safe to delete; it refills)
 - Parent check-in: option **2 (My stats)** in the app shows the report card, or just read the JSON
 
-## Path to the React + Render version
+## The web version
 
-The CLI was built so the backend swap is mechanical:
+### Run it locally
 
-1. **API backend (Render):** implement `POST /api/v1/progress` per the contract documented in `quest/sync.py` — the CLI already sends full profile + session summaries and handles auth via `SYNC_TOKEN`. Add `GET /api/v1/profile/:id` for cross-device state.
-2. **Question service:** lift `ai.py` into the backend verbatim (it's pure Python + requests) so the MiniMax key lives server-side, then expose `POST /api/v1/quest` returning the same question JSON schema.
-3. **React frontend:** `session.py` is the game loop spec; `ui.py` maps 1:1 to components (HUD, QuestionCard, BossBanner, SummaryTable, ReportCard). All state is already JSON.
+```bash
+# Terminal 1 — backend (uses your root .env for the MiniMax key)
+pip install -r requirements.txt
+uvicorn backend.app.main:app --reload          # http://localhost:8000
+
+# Terminal 2 — frontend
+cd frontend
+npm install
+npm run dev                                     # http://localhost:5173
+```
+
+The frontend reads `VITE_API_URL` (defaults to `http://localhost:8000`).
+
+### API
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /` | health check |
+| `GET /api/v1/players` | roster for the "who's playing?" picker |
+| `POST /api/v1/players` | create a profile (`{name, prefs}`) |
+| `GET /api/v1/players/{id}` | profile + computed level/badges |
+| `POST /api/v1/players/{id}/quest` | start today's quest (`{local_date}`) — returns questions **without answers** |
+| `POST /api/v1/quests/{id}/answer` | grade the next answer server-side (MiniMax grades written ones) |
+| `POST /api/v1/quests/{id}/complete` | streak bonus, badges, history |
+| `POST /api/v1/progress` | the CLI's sync contract (Bearer `SYNC_TOKEN`) |
+
+Answers never reach the browser: grading happens on the server, so a curious kid can't peek in DevTools. Question generation works exactly like the CLI — instant serve from a per-player pre-generated pool (or the offline bank on first play), while a background thread brews the next themed session.
+
+### Deploy the backend — Koyeb (or Zeabur)
+
+1. Push this repo to GitHub.
+2. **Koyeb:** Create Service → GitHub → this repo. The buildpack auto-detects Python via the root `Procfile` and `requirements.txt` — no Dockerfile needed. Pick the free instance (US-East for fastest wake-ups).
+   **Zeabur:** New Project → Deploy from GitHub → this repo; its Python buildpack also honors the `Procfile`.
+3. Set environment variables on the service:
+   - `MINIMAX_API_KEY` — so generation/grading runs server-side
+   - `DATABASE_URL` — **important:** free instances have ephemeral disks (wiped on redeploy and scale-to-zero), so attach the platform's free Postgres (or a free [Neon](https://neon.tech) db) or the kids' XP resets. Without it the backend falls back to SQLite — fine for local dev only.
+   - `CORS_ORIGINS` — set to your Vercel URL once you have it, e.g. `https://summer-quest.vercel.app` (unset = allow all, handy while testing)
+   - `SYNC_TOKEN` — optional, only if the CLIs will sync to this backend
+4. Note the public URL, e.g. `https://summer-quest-yourname.koyeb.app` — check `GET /` returns `{"status": "healthy"}`.
+
+### Deploy the frontend — Vercel
+
+1. Vercel → Add New Project → import this repo.
+2. Set **Root Directory** to `frontend` (Vite is auto-detected; build command `npm run build`, output `dist`).
+3. Add env var `VITE_API_URL` = your backend URL from above (no trailing slash).
+4. Deploy, then go back to Koyeb/Zeabur and set `CORS_ORIGINS` to the Vercel URL.
+
+Every `git push` now rebuilds both halves automatically.
+
+### Point the CLI at the backend (optional)
+
+Set in each machine's `.env`: `SYNC_URL=https://your-backend-url` and a matching `SYNC_TOKEN` — completed CLI sessions then appear in the backend's history via the contract in `quest/sync.py`.
+
+### Free-tier notes
+
+- Free backends **sleep** when idle; the first request of the day takes ~10–30s to wake. The frontend shows its "summoning" spinner during this — FastAPI itself boots in milliseconds, so the platform wake-up dominates.
+- The background question-brewing thread only runs while the instance is awake (i.e., while someone is playing). If a freshly woken instance has an empty pool, the quest starts instantly from the offline bank and the AI session is ready next time — same graceful degradation as the CLI.
 
 ## Notes
 
