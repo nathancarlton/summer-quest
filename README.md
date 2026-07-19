@@ -180,6 +180,27 @@ you ever switch.)
 
 Every `git push` now rebuilds both halves automatically.
 
+### Import existing CLI progress
+
+If a kid has been playing the CLI version, move their profile online once
+(from the repo root on their machine, venv active):
+
+```bash
+python3 scripts/import_cli_progress.py https://your-backend-url
+```
+
+XP, streak, badges, favorites, mastered questions, and session history all
+carry over; their name then appears in the web app's player picker. The script
+refuses to run twice for the same player unless you pass `--force`.
+
+### The AI status dot
+
+A small dot on the home screen (and during quests) shows whether MiniMax is
+working behind the scenes: green = last AI call succeeded, red = last call
+failed (the game silently falls back to the offline pack), gray = no key set,
+amber = no AI call yet since the server booted. Clicking it fires a real test
+call. The same info is at `GET /api/v1/ai/status?probe=true` on the backend.
+
 ### Point the CLI at the backend (optional)
 
 Set in each machine's `.env`: `SYNC_URL=https://your-backend-url` and a matching `SYNC_TOKEN` — completed CLI sessions then appear in the backend's history via the contract in `quest/sync.py`.

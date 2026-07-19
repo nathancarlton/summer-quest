@@ -266,6 +266,46 @@ body {
   outline-offset: 2px;
 }
 
+/* ─── AI status dot (parent-facing) ─── */
+.foot-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ai-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.85;
+  background: #9ca3af;
+  vertical-align: middle;
+}
+
+.ai-ok {
+  background: #22c55e;
+}
+
+.ai-error {
+  background: #ef4444;
+}
+
+.ai-no_key {
+  background: #9ca3af;
+}
+
+.ai-unknown {
+  background: #f59e0b;
+}
+
+.ai-busy {
+  background: #60a5fa;
+  animation: pulse 0.8s ease-in-out infinite;
+}
+
 /* ─── Forms ─── */
 label,
 .label {

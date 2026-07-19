@@ -52,6 +52,13 @@ def health():
     return {"status": "healthy", "app": "summer-quest", "language": "Python"}
 
 
+@app.get("/api/v1/ai/status")
+def ai_status(probe: bool = False):
+    """Is MiniMax reachable with the configured key? Feeds the web app's
+    status dot; ?probe=true fires a real tiny chat call to check right now."""
+    return engine.ai_status(probe)
+
+
 # ─── Players ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/v1/players")

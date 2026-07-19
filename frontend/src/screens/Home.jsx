@@ -1,3 +1,4 @@
+import AiDot from '../AiDot.jsx'
 import ThemePicker from '../ThemePicker.jsx'
 
 // The HUD from ui.py: XP, level, streak, badges, progress to next level.
@@ -48,7 +49,10 @@ export default function Home({ player, onStart, onStats, onSwitch }) {
       <button className="link" onClick={onSwitch}>
         Not {player.name}? Switch player
       </button>
-      <ThemePicker />
+      <div className="foot-row">
+        <ThemePicker />
+        <AiDot />
+      </div>
     </div>
   )
 }

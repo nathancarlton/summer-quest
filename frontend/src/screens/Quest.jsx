@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AiDot from '../AiDot.jsx'
 import { api } from '../api.js'
 import { CATEGORY_LABELS, CHEERS, ENCOURAGE, pick } from '../constants.js'
 
@@ -54,7 +55,9 @@ export default function Quest({ quest, onFinish }) {
         <span className="q-count">
           Question {index + 1}/{questions.length}
         </span>
-        <span className="q-cat">{CATEGORY_LABELS[q.category] || q.category}</span>
+        <span className="q-cat">
+          {CATEGORY_LABELS[q.category] || q.category} <AiDot />
+        </span>
       </div>
       <div className="progress slim">
         <div

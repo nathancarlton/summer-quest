@@ -162,6 +162,46 @@ def sanitize_question(q):
     }
 
 
+# ─── AI health (feeds the parent-facing status dot in the web app) ──────────
+
+_ai_status = {
+    "state": "unknown",  # unknown | ok | error (no_key handled in ai_status)
+    "detail": "no AI call made since the server last started",
+    "checked": None,
+}
+
+
+def _note_ai(ok, detail=""):
+    _ai_status["state"] = "ok" if ok else "error"
+    _ai_status["detail"] = str(detail)[:300]
+    _ai_status["checked"] = datetime.now(timezone.utc).isoformat()
+
+
+def ai_status(probe=False):
+    """Health of the MiniMax connection. Normally reports the outcome of the
+    most recent organic call (generation or grading); `probe` fires a real,
+    tiny chat request right now — the definitive is-the-key-valid check."""
+    if not config.MINIMAX_API_KEY:
+        return {
+            "configured": False,
+            "state": "no_key",
+            "detail": "MINIMAX_API_KEY is not set on the server",
+            "checked": None,
+            "model": config.MINIMAX_MODEL,
+        }
+    if probe:
+        try:
+            ai._chat(
+                [{"role": "user", "content": "Reply with the single word: OK"}],
+                temperature=0.0,
+                max_tokens=500,
+            )
+            _note_ai(True, "probe succeeded")
+        except Exception as e:
+            _note_ai(False, f"probe failed: {e}")
+    return {"configured": True, "model": config.MINIMAX_MODEL, **_ai_status}
+
+
 # ─── Per-player question pool + background refill ───────────────────────────
 
 def _pool_key(pid):
@@ -210,7 +250,9 @@ def refill_pool_in_background(p):
                     qs = ai.generate_questions(
                         la_count, math_count, weak, prefs=prefs, theme=theme
                     )
-                except Exception:
+                    _note_ai(True, "question generation succeeded")
+                except Exception as e:
+                    _note_ai(False, f"question generation failed: {e}")
                     return  # network/API problem — try again on the next quest
                 qs = [q for q in qs if bank.valid_question(q)]
                 if len(qs) < threshold:
@@ -269,9 +311,11 @@ def _grade(q, answer):
         return correct, q.get("explanation", "")
     if config.MINIMAX_API_KEY:
         try:
-            return ai.grade_short_answer(q, answer)
-        except Exception:
-            pass
+            result = ai.grade_short_answer(q, answer)
+            _note_ai(True, "short-answer grading succeeded")
+            return result
+        except Exception as e:
+            _note_ai(False, f"short-answer grading failed: {e}")
     expected = set(str(q["answer"]).lower().split())
     given = set(answer.lower().split())
     correct = len(expected & given) >= max(1, math.ceil(len(expected) * 0.2))
