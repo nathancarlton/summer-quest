@@ -49,7 +49,14 @@ class AnswerBody(BaseModel):
 
 @app.get("/")
 def health():
-    return {"status": "healthy", "app": "summer-quest", "language": "Python"}
+    return {
+        "status": "healthy",
+        "app": "summer-quest",
+        "language": "Python",
+        # Render injects RENDER_GIT_COMMIT; compare with `git log` to spot a
+        # stale deploy at a glance.
+        "commit": os.getenv("RENDER_GIT_COMMIT", "dev")[:7],
+    }
 
 
 @app.get("/api/v1/ai/status")

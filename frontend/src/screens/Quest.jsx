@@ -98,7 +98,12 @@ export default function Quest({ quest, onFinish }) {
       setChallenge(c)
       if (c.overturned) setCorrectSoFar((n) => n + 1)
     } catch (e) {
-      setChallenge({ overturned: false, message: e.message })
+      // A bare "Not Found" means the backend hasn't caught up to this
+      // feature yet — say something kinder than an HTTP error.
+      const friendly = /not found/i.test(e.message)
+        ? "The appeals judge isn't in court right now — ask a grown-up to check this one."
+        : e.message
+      setChallenge({ overturned: false, message: friendly })
     }
   }
 
