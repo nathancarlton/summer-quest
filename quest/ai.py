@@ -123,10 +123,16 @@ Each must be type "mc" with exactly 4 options. Each JSON object:
 
 
 def generate_expedition(topic_key, topic_label, topic_desc, n=5):
-    """Generate one expedition's trivia set — a single small batch."""
-    return _gen_batch(GEN_EXPEDITION_PROMPT.format(
+    """Generate one expedition's trivia set — a single small batch, then the
+    same adversarial answer-key audit the daily quests get."""
+    return verify_mc(_gen_batch(GEN_EXPEDITION_PROMPT.format(
         n=n, topic=topic_label, desc=topic_desc, key=topic_key
-    ))
+    )))
+
+
+def looks_confused(q):
+    """Public alias — the serve-gate sweeper uses this on stored questions."""
+    return _looks_confused(q)
 
 
 def _chunks(total, size):
@@ -276,44 +282,48 @@ def generate_questions(la_count, math_count, weak_categories, prefs=None, theme=
         questions.extend(result or [])
     if not questions:
         raise ValueError("AI returned no questions")
-    return _verify_math(questions)
+    return verify_mc(questions)
 
 
-MATH_VERIFY_PROMPT = """You are auditing the answer keys of multiple-choice math \
-problems. For EACH problem: solve it yourself from scratch, carefully, then judge \
-whether the official answer letter is correct.
-A problem is BAD if the true result is not among the options, if the official \
-letter points at the wrong option, or if the story forces impossible values \
-(like a fraction of a physical object).
+MC_VERIFY_PROMPT = """You are auditing the answer keys of multiple-choice practice \
+questions (math, language arts, and trivia). For EACH question, determine the \
+correct answer YOURSELF first — solve math step by step, work through grammar and \
+reading carefully, recall facts precisely — and only then judge the official letter.
+A question is BAD if: the true answer is not among the options, the official \
+letter points at the wrong option, more than one option is defensibly correct, \
+the story forces impossible values (like a fraction of a physical object), or \
+the question is unanswerable as written.
 
-Problems (JSON): {problems}
+Questions (JSON): {problems}
 
-Return ONLY a JSON array, one entry per problem, same order:
+Return ONLY a JSON array, one entry per question, same order:
 [{{"i": 0, "your_answer": "B", "official_is_correct": true}}, ...]"""
 
 
-def _verify_math(questions):
-    """Adversarial answer-key check for math questions. An independent pass
-    re-solves each one; questions whose key fails the audit are dropped.
-    Runs only in background brewing, so the extra call costs no kid-time.
-    If the audit call itself fails, questions pass through unverified —
-    availability beats perfection."""
+def verify_mc(questions):
+    """Adversarial answer-key audit for multiple-choice questions. An
+    independent pass re-derives each answer; questions whose key fails are
+    dropped. Runs only in background brewing/sweeping, so the extra call
+    costs no kid-time. If the audit call itself fails, questions pass
+    through unaudited — availability beats perfection."""
     idxs = [i for i, q in enumerate(questions)
-            if q.get("category") == "math_challenge" and q.get("options")]
+            if q.get("type") == "mc" and q.get("options")]
     if not idxs:
         return questions
-    payload = [
-        {"i": n, "question": questions[i]["question"],
-         "options": questions[i]["options"],
-         "official_answer": str(questions[i]["answer"])}
-        for n, i in enumerate(idxs)
-    ]
+    payload = []
+    for n, i in enumerate(idxs):
+        q = questions[i]
+        item = {"i": n, "question": q["question"], "options": q["options"],
+                "official_answer": str(q["answer"])}
+        if q.get("passage"):
+            item["passage"] = q["passage"]
+        payload.append(item)
     try:
         text = _chat(
             [{"role": "user",
-              "content": MATH_VERIFY_PROMPT.format(problems=json.dumps(payload))}],
+              "content": MC_VERIFY_PROMPT.format(problems=json.dumps(payload))}],
             temperature=0.0,
-            max_tokens=6000,
+            max_tokens=8000,
         )
         verdicts = _extract_json(text)
         bad = {idxs[v["i"]] for v in verdicts

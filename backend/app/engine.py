@@ -9,6 +9,7 @@ per player instead of per machine.
 Answers never leave the server: the client gets sanitized questions and
 posts answers back one at a time for grading, so the browser can't peek.
 """
+import hashlib
 import math
 import random
 import re
@@ -264,31 +265,94 @@ def _pool_key(pid):
 
 
 def _pool_take(pid):
+    """Serve gate: ONLY sessions that passed the adversarial audit
+    (verified flag) are ever handed to a learner. Unverified entries —
+    e.g. brewed before the audit existed — stay queued for the sweeper,
+    and the caller falls back to the curated offline bank meanwhile."""
     sessions = storage.get_json(_pool_key(pid), [])
-    if not sessions:
-        return None
-    first = sessions.pop(0)
-    storage.set_json(_pool_key(pid), sessions)
-    return first.get("questions", [])
+    for i, s in enumerate(sessions):
+        if s.get("verified"):
+            sessions.pop(i)
+            storage.set_json(_pool_key(pid), sessions)
+            return s.get("questions", [])
+    return None
 
 
 def _pool_count(pid):
     return len(storage.get_json(_pool_key(pid), []))
 
 
+def _session_fingerprint(s):
+    """Stable identity for a stored pool entry, so the sweeper can write back
+    audit results without resurrecting a session a kid took mid-audit."""
+    qs = s.get("questions") or []
+    basis = (s.get("theme") or s.get("topic") or "") + "|" + (
+        qs[0].get("question", "") if qs else ""
+    )
+    return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:12]
+
+
+def _audit_pools(pid):
+    """Sweep unverified pool entries (brewed before the serve gate existed):
+    drop confused questions, run the adversarial answer-key audit, and mark
+    the survivors verified so the serve gate lets them through. Runs inside
+    the refill worker, before any new generation."""
+    for key in (_pool_key(pid), _expool_key(pid)):
+        snapshot = storage.get_json(key, [])
+        for s in snapshot:
+            if s.get("verified"):
+                continue
+            fp = _session_fingerprint(s)
+            qs = [q for q in s.get("questions", []) if not ai.looks_confused(q)]
+            try:
+                qs = ai.verify_mc(qs)
+                _note_ai(True, "pool audit succeeded")
+            except Exception as e:
+                _note_ai(False, f"pool audit failed: {e}")
+                return  # AI unreachable — leave for the next sweep
+            # Re-read before writing: only update the entry if it's still there.
+            current = storage.get_json(key, [])
+            changed = False
+            for entry in current:
+                if not entry.get("verified") and _session_fingerprint(entry) == fp:
+                    entry["questions"] = qs
+                    entry["verified"] = True
+                    changed = True
+                    break
+            if changed:
+                # Too few survivors = a rotten session; drop it entirely.
+                current = [e for e in current
+                           if not (e.get("verified") and len(e.get("questions", [])) < 3)]
+                storage.set_json(key, current)
+
+
 _refilling = set()
 _refill_lock = threading.Lock()
 
 
+def _background_work_pending(pid):
+    """Anything for the worker to do? Unaudited entries to sweep, or either
+    pool short of VERIFIED (servable) sessions. Counting raw entries would
+    deadlock: a pool full of unverified sessions would look 'full' and the
+    sweeper would never run."""
+    pool = storage.get_json(_pool_key(pid), [])
+    ex = storage.get_json(_expool_key(pid), [])
+    if any(not s.get("verified") for s in pool + ex):
+        return True
+    if sum(1 for s in pool if s.get("verified")) < POOL_TARGET:
+        return True
+    return sum(1 for s in ex if s.get("verified")) < EXPOOL_TARGET
+
+
 def refill_pool_in_background(p):
-    """Brew the next themed, personalized sessions while the kid plays.
-    No-op without an API key, if a refill for this player is already running,
-    or if their pool is full — same degrade-gracefully rules as the CLI."""
+    """Audit anything unswept, then brew the next themed sessions while the
+    kid plays. No-op without an API key, if a worker for this player is
+    already running, or if there's nothing to do."""
     pid = p["id"]
     if not config.MINIMAX_API_KEY:
         return
     with _refill_lock:
-        if pid in _refilling or _pool_count(pid) >= POOL_TARGET:
+        if pid in _refilling or not _background_work_pending(pid):
             return
         _refilling.add(pid)
 
@@ -299,6 +363,9 @@ def refill_pool_in_background(p):
 
     def _worker():
         try:
+            # Audit anything already queued that predates the serve gate,
+            # so it becomes servable again instead of sitting dead.
+            _audit_pools(pid)
             threshold = max(3, (la_count + math_count) // 2)
             while _pool_count(pid) < POOL_TARGET:
                 theme = random.choice(config.THEMES)
@@ -315,8 +382,9 @@ def refill_pool_in_background(p):
                 if len(qs) < threshold:
                     return  # weak result; don't spin uselessly
                 sessions = storage.get_json(_pool_key(pid), [])
+                # verified: generate_questions already ran the MC audit.
                 sessions.append({"theme": theme, "difficulty": difficulty,
-                                 "questions": qs})
+                                 "questions": qs, "verified": True})
                 storage.set_json(_pool_key(pid), sessions)
             # Daily quests come first; only once that pool is full do we brew
             # expedition trivia with the leftover background time.
@@ -335,10 +403,11 @@ def _expool_key(pid):
 
 
 def _expool_take(pid, topic=None):
-    """Pop a pre-brewed expedition — the requested topic, or any if None."""
+    """Pop a pre-brewed expedition — the requested topic, or any if None.
+    Same serve gate as quests: only audited (verified) entries are served."""
     sessions = storage.get_json(_expool_key(pid), [])
     for i, s in enumerate(sessions):
-        if topic is None or s.get("topic") == topic:
+        if s.get("verified") and (topic is None or s.get("topic") == topic):
             sessions.pop(i)
             storage.set_json(_expool_key(pid), sessions)
             return s
@@ -360,7 +429,8 @@ def _fill_expeditions(pid):
         if len(qs) < 3:
             return
         sessions = storage.get_json(_expool_key(pid), [])
-        sessions.append({"topic": topic, "questions": qs})
+        # verified: generate_expedition already ran the MC audit.
+        sessions.append({"topic": topic, "questions": qs, "verified": True})
         storage.set_json(_expool_key(pid), sessions)
 
 
