@@ -1,0 +1,37 @@
+# Trigger a Render backend deploy on every push that touches backend code.
+#
+# Why this exists: the Render service was created via API from a public repo
+# URL, which never receives GitHub push webhooks — its "Auto-Deploy: On
+# Commit" setting has nothing to fire it. This workflow calls the service's
+# private Deploy Hook instead.
+#
+# One-time setup: Render dashboard → summer-quest-api → Settings → Deploy →
+# copy the Deploy Hook URL, then GitHub repo → Settings → Secrets and
+# variables → Actions → New repository secret:
+#   name:  RENDER_DEPLOY_HOOK
+#   value: (the copied URL)
+name: Deploy backend to Render
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "quest/**"
+      - "requirements.txt"
+      - "Procfile"
+      - "render.yaml"
+      - ".python-version"
+
+jobs:
+  trigger-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the Render deploy hook
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK }}" ]; then
+            echo "::error::RENDER_DEPLOY_HOOK secret is not set — see the comment at the top of this workflow file."
+            exit 1
+          fi
+          curl -fsS "${{ secrets.RENDER_DEPLOY_HOOK }}" > /dev/null
+          echo "Render deploy triggered."
