@@ -13,12 +13,15 @@ Comes in two forms that share the same game engine:
 - **Adaptive** — tracks per-category accuracy and tells the AI to emphasize weak areas; a challenge level (1–5) rises when a kid scores 90%+ and eases when they score 50% or below, keeping sessions in the productive ~7–8/10 zone
 - **Personalized, privately** — favorites (color, dream destination, instrument, sport, song, weather, animal, food) get woven into questions; each badge earned unlocks a bonus prompt to add or refresh one. The catalog is deliberately impersonal — things, places, weather; never names of people — so profiles don't collect identifying details
 - **AI-graded written answers** — short-answer questions get generous, encouraging feedback
-- **Challenges & reports** — a learner who disputes a ruling can hit "⚖️ Challenge it": an independent AI appeals judge re-evaluates (told explicitly the question or original grader may be wrong) and pays XP retroactively on an overturn. Any question can also be reported to the game developers; reports (plus every won challenge, auto-filed) are readable at `GET /api/v1/reports` on the backend — protect with `SYNC_TOKEN` if desired
+- **Challenges & reports** — a learner who disputes a ruling can hit "⚖️ Challenge it" for an independent AI re-evaluation, or report any question to the game developers (see [Question quality](#question-quality-verification-before-a-learner-ever-sees-it) below)
 - **Gamification** — XP, 10 named levels, daily streaks with bonus XP, unlockable badges, and a double-XP **boss battle** at the end of each session (with a hype-building intro that recaps the run before the final showdown)
 - **Timed & rage-quit-proof (web)** — 90 seconds per question (`QUESTION_SECONDS`; 10 × 90s ≈ a 15-minute session) with a countdown and auto-timeout; sessions live server-side, so closing the browser mid-game changes nothing — the home screen offers exactly one button, "Finish your quest!", resuming at the first unanswered question with all previous answers locked in. No restart path exists, and expeditions can't be used as an escape hatch either
 - **Expeditions** 🧭 — trivia side-quests across six worlds (Science Lab, Wild World, Body & Food, Money Matters, We the People, Map Masters) earning **Sparks ⚡** and collectible **stickers** — a separate economy from XP. AI-generated after the daily-quest pool fills, with a curated offline trivia bank so they always start instantly; safety topics are framed as safety knowledge, never instructions
-- **Progress tracking** — local profile + append-only session history, plus a sync stub ready to point at a future API backend
-- **Offline-safe** — no API key or no internet? Falls back to a built-in question bank; sync events queue and flush later
+- **Question quality pipeline** — generated questions pass a confused-explanation filter and an **adversarial answer-key audit** (an independent AI pass re-solves every multiple-choice question) before earning a `verified` flag; the serve gate refuses to hand a learner anything unverified. If a bad one still slips through, the challenge button catches it and auto-reports it
+- **Family leaderboard** — everyone ranked by XP with levels, streaks, badges, and Sparks
+- **Looks** — four color themes (Sunset, Ocean, Forest, Midnight) and three fonts (Fredoka, Nunito, Inter), each remembered per device
+- **Progress tracking** — full profile + append-only session history, synced between the CLI and the web backend
+- **Offline-safe** — no API key or no internet? Falls back to a built-in bank of 165 curated questions (plus 36 expedition trivia); sync events queue and flush later
 
 ## Setup (Mac & Windows)
 
@@ -53,11 +56,14 @@ First run asks for the learner's name and creates their profile (one profile per
 |---|---|---|
 | `MINIMAX_API_KEY` | — | Your MiniMax key. Blank = offline mode. |
 | `MINIMAX_BASE_URL` | `https://api.minimax.io/v1` | OpenAI-compatible endpoint |
-| `MINIMAX_MODEL` | `MiniMax-M2.7` | Any MiniMax chat model |
+| `MINIMAX_MODEL` | `MiniMax-M3` | Any MiniMax chat model |
 | `SYNC_URL` | blank | Backend base URL for CLI sync. Blank = sync disabled. |
-| `SYNC_TOKEN` | blank | Bearer token for the backend |
+| `SYNC_TOKEN` | blank | Bearer token for the backend (also protects `GET /api/v1/reports`) |
 | `QUESTIONS_PER_SESSION` | `10` | Session length |
 | `LA_RATIO` | `0.7` | Language arts share of each session |
+| `QUESTION_SECONDS` | `90` | Per-question time limit in the web app |
+| `DATABASE_URL` | blank | Backend only: Postgres for durable storage (else local SQLite) |
+| `CORS_ORIGINS` | blank | Backend only: comma-separated allowed browser origins (blank = all) |
 
 ## Project layout
 
@@ -65,19 +71,23 @@ First run asks for the learner's name and creates their profile (one profile per
 quest/            # shared game engine + the CLI
   __main__.py     # CLI entry point / menu
   config.py       # env, paths, XP/level constants, themes, food→unit map
-  ai.py           # MiniMax client: batched question gen + short-answer grading
-  bank.py         # offline fallback pack + personalized templates
+  ai.py           # MiniMax client: generation, grading, appeals judge, key audit
+  bank.py         # offline question pack (165) + personalized templates
+  expeditions.py  # trivia topic catalog + curated offline expedition bank
   pool.py         # CLI's pre-generated question pool + background refill
-  profile.py      # XP, streaks, badges, category stats, prefs, offline mastery
+  profile.py      # XP, streaks, badges, difficulty, prefs, offline mastery
   session.py      # the CLI's daily quest loop
   sync.py         # CLI→backend sync (POST /api/v1/progress) + offline queue
   ui.py           # rich-based terminal UI
 backend/app/      # FastAPI backend (imports quest/ directly — no duplication)
   main.py         # routes + CORS
-  engine.py       # the quest loop as HTTP: start → answer × n → complete
+  engine.py       # quests, expeditions, resume, challenges, pools + serve gate
   storage.py      # SQLite locally, Postgres via DATABASE_URL in production
 frontend/         # React (Vite) app for Vercel
-  src/screens/    # PickPlayer, Onboarding, Home (HUD), Quest, Summary, Stats
+  src/screens/    # PickPlayer, Onboarding, Home, Quest, Summary, Stats,
+                  # Leaderboard, Topics (expeditions)
+scripts/          # one-shot deploy helpers + CLI-progress importer
+.github/workflows/ # push-to-deploy: calls the Render deploy hook
 render.yaml       # Render service definition (build + start commands, env vars)
 Procfile          # same boot command for Heroku-style hosts (Koyeb/Zeabur)
 data/             # gitignored: CLI profile + history, local SQLite db
@@ -131,16 +141,26 @@ The frontend reads `VITE_API_URL` (defaults to `http://localhost:8000`).
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /` | health check |
+| `GET /` | health check (`commit` field shows the deployed git SHA) |
 | `GET /api/v1/players` | roster for the "who's playing?" picker |
 | `POST /api/v1/players` | create a profile (`{name, prefs}`) |
-| `GET /api/v1/players/{id}` | profile + computed level/badges |
-| `POST /api/v1/players/{id}/quest` | start today's quest (`{local_date}`) — returns questions **without answers** |
-| `POST /api/v1/quests/{id}/answer` | grade the next answer server-side (MiniMax grades written ones) |
-| `POST /api/v1/quests/{id}/complete` | streak bonus, badges, history |
+| `GET /api/v1/players/{id}` | profile + computed level/badges/active-session state |
+| `GET /api/v1/players/{id}/active` | is there an unfinished session? |
+| `GET /api/v1/players/{id}/history` | completed-session summaries |
+| `POST /api/v1/players/{id}/prefs` | add/refresh one favorite (server whitelists the catalog) |
+| `POST /api/v1/players/{id}/quest` | start today's quest (`{local_date}`) — returns questions **without answers**; returns the in-flight session instead if one is unfinished |
+| `POST /api/v1/players/{id}/expedition` | start a trivia expedition (`{topic}`, omit for random) |
+| `GET /api/v1/expeditions` | the six expedition topics |
+| `POST /api/v1/quests/{id}/answer` | grade the next answer server-side (MiniMax grades written ones; server also enforces the per-question time limit) |
+| `POST /api/v1/quests/{id}/challenge` | dispute a wrong ruling — an independent AI appeals pass re-evaluates |
+| `POST /api/v1/quests/{id}/report` | flag a question for the game developers |
+| `POST /api/v1/quests/{id}/complete` | streak bonus, badges, difficulty adjustment, history |
+| `GET /api/v1/leaderboard` | all players ranked by XP |
+| `GET /api/v1/ai/status` | is MiniMax working? `?probe=true` fires a live test call |
+| `GET /api/v1/reports` / `DELETE /api/v1/reports` | flagged questions + auto-filed challenge wins (requires `SYNC_TOKEN` when set) |
 | `POST /api/v1/progress` | the CLI's sync contract (Bearer `SYNC_TOKEN`) |
 
-Answers never reach the browser: grading happens on the server, so a curious kid can't peek in DevTools. Question generation works exactly like the CLI — instant serve from a per-player pre-generated pool (or the offline bank on first play), while a background thread brews the next themed session.
+Answers never reach the browser: grading happens on the server, so a curious kid can't peek in DevTools. Question generation works exactly like the CLI — instant serve from a per-player pre-generated pool (or the offline bank on first play), while a background thread brews the next themed session and audits anything not yet verified.
 
 ### Set up the database — Supabase
 
@@ -167,22 +187,45 @@ it awake; after a long vacation, un-pause it in the Supabase dashboard (Restore)
 2. Set environment variables on the service:
    - `MINIMAX_API_KEY` — so generation/grading runs server-side
    - `DATABASE_URL` — the Supabase pooler URI from above
-   - `CORS_ORIGINS` — set to your Vercel URL once you have it, e.g. `https://summer-quest.vercel.app` (unset = allow all, handy while testing)
-   - `SYNC_TOKEN` — optional, only if the CLIs will sync to this backend
-3. Note the public URL, e.g. `https://summer-quest-api.onrender.com` — check `GET /` returns `{"status": "healthy"}`.
+   - `CORS_ORIGINS` — set to your Vercel URL once you have it, e.g. `https://summer-quest.vercel.app` (unset = allow all — fine while testing, but lock this down for a public deploy; see Security below)
+   - `SYNC_TOKEN` — recommended: protects `GET /api/v1/reports` (question text + kids' answers) and the CLI sync endpoint
+3. Note the public URL, e.g. `https://summer-quest-api.onrender.com` — check `GET /` returns `{"status": "healthy", "commit": "..."}`.
 
 (Don't use Render's own free Postgres for this — it expires and is deleted after
 30 days. The `Procfile` also still works on Heroku-style hosts like Zeabur if
 you ever switch.)
 
+**Keeping push-to-deploy working:** services created via Render's dashboard get
+GitHub push webhooks automatically, but one created via the API/CLI (as
+`scripts/deploy_render.sh` does) does not — its "Auto-Deploy: On Commit" setting
+has nothing to fire it. `.github/workflows/deploy-backend.yml` covers this by
+calling the service's Deploy Hook on every push that touches backend code.
+One-time setup: Render dashboard → the service → Settings → Deploy → copy the
+**Deploy Hook** URL → GitHub repo → Settings → Secrets and variables → Actions →
+add a secret named `RENDER_DEPLOY_HOOK` with that URL. Without this secret,
+backend deploys must be triggered manually (`bash scripts/deploy_render.sh` or
+Render's "Manual Deploy" button) — worth checking the `commit` field at `GET /`
+against `git log` if something you pushed doesn't seem to be live.
+
 ### Deploy the frontend — Vercel
 
 1. Vercel → Add New Project → import this repo.
 2. Set **Root Directory** to `frontend` (Vite is auto-detected; build command `npm run build`, output `dist`).
-3. Add env var `VITE_API_URL` = your backend URL from above (no trailing slash).
+3. Add env var `VITE_API_URL` = your backend URL from above (no trailing slash). This value is **public** — it ends up in the built JS bundle, same as any frontend config.
 4. Deploy, then go back to Render and set `CORS_ORIGINS` to the Vercel URL.
 
-Every `git push` now rebuilds both halves automatically.
+Every `git push` to `main` now redeploys both halves automatically (frontend via
+Vercel's native GitHub integration, backend via the Actions workflow above).
+
+### Deploy scripts (optional shortcut)
+
+`scripts/deploy_render.sh` and `scripts/deploy_vercel.sh` drive the same setup
+from the command line via each platform's API — handy for scripting the whole
+stack in one go instead of clicking through both dashboards. They take API
+tokens as env vars (`RENDER_KEY`, `VERCEL_TOKEN`) and are idempotent — re-running
+updates the existing service instead of duplicating it. Treat those tokens as
+full account credentials: create them, run the script, then delete the token
+from the platform's dashboard.
 
 ### Import existing CLI progress
 
@@ -205,6 +248,28 @@ failed (the game silently falls back to the offline pack), gray = no key set,
 amber = no AI call yet since the server booted. Clicking it fires a real test
 call. The same info is at `GET /api/v1/ai/status?probe=true` on the backend.
 
+### Question quality: verification before a learner ever sees it
+
+Generated questions go through several layers before they're servable:
+
+1. **Confused-explanation filter** — an explanation containing self-doubt
+   tells ("wait, that's not an option", "let me check again") means the model
+   caught its own mistake; that question is dropped rather than shown.
+2. **Adversarial answer-key audit** — a second, independent AI pass re-solves
+   every multiple-choice question from scratch and checks the official
+   answer; questions that fail are dropped.
+3. **Serve gate** — every pooled session carries a `verified` flag, earned by
+   passing steps 1–2. The serve path refuses anything unverified; a
+   background sweep audits and flags older pool entries the next time the
+   pool is touched, falling back to the hand-curated offline bank meanwhile.
+
+If something still slips through, a learner can hit "⚖️ Challenge it" on a
+wrong ruling: a third independent AI pass re-evaluates — told explicitly that
+the question or the original grader may be wrong — and pays XP retroactively
+on an overturn, correcting every stat the original ruling touched. Any
+question can also be reported directly via "📮 Report this question." Both
+land at `GET /api/v1/reports`.
+
 ### Point the CLI at the backend (optional)
 
 Set in each machine's `.env`: `SYNC_URL=https://your-backend-url` and a matching `SYNC_TOKEN` — completed CLI sessions then appear in the backend's history via the contract in `quest/sync.py`.
@@ -213,8 +278,20 @@ Set in each machine's `.env`: `SYNC_URL=https://your-backend-url` and a matching
 
 - Free backends **sleep** when idle (Render spins down after ~15 min); the first request of the day takes ~10–30s to wake. The frontend shows its "summoning" spinner during this — FastAPI itself boots in milliseconds, so the platform wake-up dominates.
 - The background question-brewing thread only runs while the instance is awake (i.e., while someone is playing). If a freshly woken instance has an empty pool, the quest starts instantly from the offline bank and the AI session is ready next time — same graceful degradation as the CLI.
+- Free Supabase projects pause after ~1 week of inactivity — see the database setup section above.
+
+## Security
+
+This repo is public. A few things worth knowing if you're deploying your own copy:
+
+- **No secrets belong in this repo.** `.env`, `.env.local`, and `.vercel/` are gitignored; `.env.example` holds placeholder values only. Never commit a real API key, database password, or deploy token — if one leaks into git history, rotate it immediately (removing the file in a later commit does not remove it from history).
+- **`SYNC_TOKEN`** gates two things: the CLI sync endpoint (`POST /api/v1/progress`) and the reports endpoint (`GET`/`DELETE /api/v1/reports`), which contains question text and kids' answers. It's optional for a small family deploy behind an obscure URL, but set it before sharing the app or the backend URL more broadly.
+- **`CORS_ORIGINS`** defaults to allowing any origin, which is convenient while standing things up but means any website could call your API from a visitor's browser. Set it to your actual Vercel URL for a real deploy.
+- **Player data has no authentication.** Anyone with a player's UUID can read their profile and history (`GET /api/v1/players/{id}`) or complete quests as them — there's no login. This is a deliberate simplicity trade-off for a same-household game with unguessable UUIDs, not something to expose as a public product without adding real auth.
+- **The MiniMax key stays server-side** (never sent to the browser) and generation prompts explicitly forbid instructions for anything dangerous even when covering safety-adjacent Expedition topics (chemicals, venom) — see `quest/ai.py` and `quest/expeditions.py`.
+- **Deploy scripts and tokens:** `scripts/deploy_*.sh` take platform API tokens as environment variables, never as committed files. Treat a Render/Vercel/Supabase token as a password to that whole account — after using one to set up infrastructure, delete it from the platform's dashboard.
 
 ## Notes
 
-- Never commit `.env` (already gitignored). Each twin's machine gets its own `.env` and its own `data/` profile.
-- The offline pack in `bank.py` is small by design — add to it if you expect long stretches without internet.
+- Never commit `.env` (already gitignored). Each twin's machine gets its own `.env` and its own `data/` profile for CLI play; the web app instead keeps one profile per player in the backend's database, shared across whichever devices they log into.
+- The offline pack in `bank.py` (165 questions) and `quest/expeditions.py` (36 trivia questions) is sized to comfortably outlast the AI catching up — add more if you expect long stretches without internet or MiniMax access.
