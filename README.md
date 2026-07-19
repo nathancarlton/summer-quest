@@ -13,7 +13,8 @@ Comes in two forms that share the same game engine:
 - **Adaptive** — tracks per-category accuracy and tells the AI to emphasize weak areas; a challenge level (1–5) rises when a kid scores 90%+ and eases when they score 50% or below, keeping sessions in the productive ~7–8/10 zone
 - **Personalized, privately** — favorites (color, dream destination, instrument, sport, song, weather, animal, food) get woven into questions; each badge earned unlocks a bonus prompt to add or refresh one. The catalog is deliberately impersonal — things, places, weather; never names of people — so profiles don't collect identifying details
 - **AI-graded written answers** — short-answer questions get generous, encouraging feedback
-- **Gamification** — XP, 10 named levels, daily streaks with bonus XP, 9 unlockable badges, and a double-XP **boss battle** at the end of each session
+- **Gamification** — XP, 10 named levels, daily streaks with bonus XP, unlockable badges, and a double-XP **boss battle** at the end of each session (with a hype-building intro that recaps the run before the final showdown)
+- **Expeditions** 🧭 — trivia side-quests across six worlds (Science Lab, Wild World, Body & Food, Money Matters, We the People, Map Masters) earning **Sparks ⚡** and collectible **stickers** — a separate economy from XP. AI-generated after the daily-quest pool fills, with a curated offline trivia bank so they always start instantly; safety topics are framed as safety knowledge, never instructions
 - **Progress tracking** — local profile + append-only session history, plus a sync stub ready to point at a future API backend
 - **Offline-safe** — no API key or no internet? Falls back to a built-in question bank; sync events queue and flush later
 

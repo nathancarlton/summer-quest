@@ -1,4 +1,4 @@
-import { CATEGORY_LABELS } from '../constants.js'
+import { CATEGORY_LABELS, TOPIC_META } from '../constants.js'
 import { Hud } from './Home.jsx'
 
 // ui.show_stats: the report card — per-category accuracy + badge collection.
@@ -46,6 +46,24 @@ export default function Stats({ player, onBack }) {
           </table>
         ) : (
           <p className="muted">Complete a quest to see your report card!</p>
+        )}
+        {Object.keys(player.stickers || {}).length > 0 && (
+          <div className="badge-box">
+            <div className="label">
+              Sticker Book · ⚡ {player.sparks || 0} Sparks
+            </div>
+            <div className="sticker-shelf">
+              {Object.entries(player.stickers).map(([key, count]) => (
+                <span
+                  key={key}
+                  className="sticker-chip"
+                  title={TOPIC_META[key]?.name || key}
+                >
+                  {TOPIC_META[key]?.emoji || '🎖️'} ×{count}
+                </span>
+              ))}
+            </div>
+          </div>
         )}
         {player.badge_details.length > 0 && (
           <div className="badge-box">

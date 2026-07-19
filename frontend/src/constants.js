@@ -34,4 +34,14 @@ export const PREF_QUESTIONS = [
   { key: 'food', q: "What's a food you love these days?", ph: 'e.g. tacos' },
 ]
 
+// Mirrors quest/expeditions.py TOPICS (names + sticker emoji).
+export const TOPIC_META = {
+  science: { name: 'Science Lab', emoji: '🧪' },
+  nature: { name: 'Wild World', emoji: '🐾' },
+  body: { name: 'Body & Food', emoji: '🥦' },
+  money: { name: 'Money Matters', emoji: '💰' },
+  civics: { name: 'We the People', emoji: '🏛️' },
+  geo: { name: 'Map Masters', emoji: '🗺️' },
+}
+
 export const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]

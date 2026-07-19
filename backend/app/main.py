@@ -130,6 +130,28 @@ def start_quest(pid: str, body: QuestStart = Body(default=QuestStart())):
     return engine.start_quest(p, body.local_date)
 
 
+@app.get("/api/v1/expeditions")
+def expedition_topics():
+    from quest import expeditions
+    return [
+        {"key": k, "name": name, "emoji": emoji, "desc": desc}
+        for k, (name, emoji, desc) in expeditions.TOPICS.items()
+    ]
+
+
+class ExpeditionStart(BaseModel):
+    topic: Optional[str] = None  # None = surprise me
+
+
+@app.post("/api/v1/players/{pid}/expedition")
+def start_expedition(pid: str, body: ExpeditionStart = Body(default=ExpeditionStart())):
+    p = _player_or_404(pid)
+    try:
+        return engine.start_expedition(p, body.topic)
+    except KeyError:
+        raise HTTPException(422, "unknown expedition topic")
+
+
 def _quest_or_404(qid):
     quest = engine.get_quest(qid)
     if quest is None:

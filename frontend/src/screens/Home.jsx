@@ -14,6 +14,7 @@ export function Hud({ player }) {
         </span>
         <span>🔥 {player.streak}</span>
         <span>🏅 {player.badges.length}</span>
+        <span>⚡ {player.sparks || 0}</span>
       </div>
       {level.next && (
         <div className="progress-wrap">
@@ -29,7 +30,7 @@ export function Hud({ player }) {
   )
 }
 
-export default function Home({ player, onStart, onStats, onBoard, onSwitch }) {
+export default function Home({ player, onStart, onExpedition, onStats, onBoard, onSwitch }) {
   return (
     <div className="shell center">
       <h1 className="logo">🗺️ Summer Quest</h1>
@@ -40,6 +41,9 @@ export default function Home({ player, onStart, onStats, onBoard, onSwitch }) {
         <div className="stack">
           <button className="btn primary big" onClick={onStart}>
             ⚔️ Start today's quest
+          </button>
+          <button className="btn big" onClick={onExpedition}>
+            🧭 Expedition <span className="muted">— trivia for ⚡ & stickers</span>
           </button>
           <div className="row">
             <button className="btn grow" onClick={onStats}>

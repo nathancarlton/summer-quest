@@ -415,6 +415,95 @@ textarea:focus {
   font-weight: 600;
 }
 
+.boss-card {
+  align-items: center;
+  text-align: center;
+  border: 3px solid #dc2626;
+  gap: 16px;
+  padding: 32px 22px;
+}
+
+.boss-skull {
+  font-size: 4rem;
+  animation: stomp 1s ease-in-out infinite;
+}
+
+@keyframes stomp {
+  0%, 100% { transform: scale(1) rotate(-3deg); }
+  50% { transform: scale(1.15) rotate(3deg); }
+}
+
+.boss-title {
+  color: #dc2626;
+  letter-spacing: 2px;
+}
+
+.boss-hype {
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.boss-stats {
+  color: var(--muted);
+}
+
+.boss-btn {
+  background: linear-gradient(135deg, #dc2626, #7c2d12);
+  color: white;
+  border: none;
+  width: 100%;
+}
+
+/* ─── Expeditions ─── */
+.topic-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.topic-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  font-weight: 600;
+}
+
+.topic-emoji {
+  font-size: 1.8rem;
+}
+
+.sticker-award {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--gold-bg);
+  border: 2px solid var(--gold-border);
+  border-radius: 14px;
+  padding: 14px;
+  text-align: left;
+}
+
+.sticker-emoji {
+  font-size: 2.6rem;
+}
+
+.sticker-shelf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sticker-chip {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-weight: 600;
+}
+
 .boss-banner {
   background: linear-gradient(135deg, #dc2626, #7c2d12);
   color: white;

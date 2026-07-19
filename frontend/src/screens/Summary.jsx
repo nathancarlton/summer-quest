@@ -63,6 +63,40 @@ function BadgeBonus({ player }) {
 
 // ui.session_summary: score, XP, streak bonus, newly unlocked badges.
 export default function Summary({ summary, onHome }) {
+  if (summary.kind === 'expedition') {
+    const s = summary.sticker
+    return (
+      <div className="shell center">
+        <div className="card">
+          <h2>🧭 Expedition Complete!</h2>
+          <table className="summary-table">
+            <tbody>
+              <tr>
+                <td>Score</td>
+                <td>
+                  {summary.score}/{summary.total}
+                </td>
+              </tr>
+              <tr>
+                <td>Sparks earned</td>
+                <td>+{summary.sparks_earned} ⚡</td>
+              </tr>
+            </tbody>
+          </table>
+          <div className="sticker-award">
+            <div className="sticker-emoji">{s.emoji}</div>
+            <div>
+              <div className="badge-title">NEW STICKER!</div>
+              {s.name} — you've collected {s.count}
+            </div>
+          </div>
+          <button className="btn primary big" onClick={onHome}>
+            Back to camp 🏕️
+          </button>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="shell center">
       <div className="card">

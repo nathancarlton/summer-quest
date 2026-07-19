@@ -95,6 +95,29 @@ Each must be type "mc" with exactly 4 options. Each JSON object:
 "answer": "correct option letter", "explanation": "kid-friendly worked solution"}}"""
 
 
+GEN_EXPEDITION_PROMPT = """Create {n} fun multiple-choice TRIVIA questions for a \
+curious student about {topic}: {desc}.
+Mix jaw-dropping "whoa, really?!" facts with genuinely useful knowledge.
+ACCURACY MATTERS: use only facts you are certain of. For numbers that change \
+over time (populations, company values, store counts), say "about" and make \
+the answer choices far apart.
+SAFETY: chemicals, venom, and health topics must be framed as safety knowledge \
+(what to avoid and WHY) — never include instructions for making or doing \
+anything dangerous.
+
+Each must be type "mc" with exactly 4 options. Each JSON object:
+{{"category": "{key}", "type": "mc", "question": "...", "passage": null, \
+"options": ["A...","B...","C...","D..."], "answer": "correct option letter", \
+"explanation": "kid-friendly why, with the wow factor"}}"""
+
+
+def generate_expedition(topic_key, topic_label, topic_desc, n=5):
+    """Generate one expedition's trivia set — a single small batch."""
+    return _gen_batch(GEN_EXPEDITION_PROMPT.format(
+        n=n, topic=topic_label, desc=topic_desc, key=topic_key
+    ))
+
+
 def _chunks(total, size):
     """Split a count into batch sizes, e.g. _chunks(7, 3) -> [3, 3, 1]."""
     return [min(size, total - i) for i in range(0, total, size)]

@@ -40,7 +40,7 @@ export default function Leaderboard({ player, onBack }) {
                 <span className="lb-stats">
                   <span className="lb-xp">⭐ {r.xp}</span>
                   <span className="lb-small">
-                    🔥 {r.streak} · 🏅 {r.badges}
+                    🔥 {r.streak} · 🏅 {r.badges} · ⚡ {r.sparks || 0}
                   </span>
                 </span>
               </div>

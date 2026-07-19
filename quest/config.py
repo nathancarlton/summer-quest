@@ -17,7 +17,7 @@ SYNC_QUEUE_PATH = DATA_DIR / "sync_queue.jsonl"
 # --- MiniMax (OpenAI-compatible) ---
 MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
 MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
-MINIMAX_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-M2.5")
+MINIMAX_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-M3")
 
 # --- Sync (stub for future Render backend) ---
 SYNC_URL = os.getenv("SYNC_URL", "")

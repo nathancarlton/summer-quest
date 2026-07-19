@@ -16,11 +16,14 @@ import threading
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from quest import ai, bank, config, profile as profile_mod
+from quest import ai, bank, config, expeditions, profile as profile_mod
 
 from . import storage
 
-POOL_TARGET = 2  # ready-made themed sessions to keep queued per player
+POOL_TARGET = 2    # ready-made themed quest sessions to keep queued per player
+EXPOOL_TARGET = 2  # ready-made expeditions queued per player (brewed AFTER quests)
+EXPEDITION_SIZE = 5
+SPARKS_PER_CORRECT = 10  # expeditions pay Sparks, a separate counter from XP
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -73,6 +76,8 @@ def leaderboard():
             "level_num": num,
             "level_title": title,
             "badges": len(p["badges"]),
+            "sparks": p.get("sparks", 0),
+            "stickers": sum(p.get("stickers", {}).values()),
             "sessions": p.get("sessions_completed", 0),
             "last_played": p.get("last_played"),
         })
@@ -88,6 +93,8 @@ def _normalize(p):
     p.setdefault("offline", {"mastered": [], "review": []})
     p.setdefault("prefs", {})
     p.setdefault("difficulty", 2)
+    p.setdefault("sparks", 0)
+    p.setdefault("stickers", {})
     return p
 
 
@@ -311,11 +318,97 @@ def refill_pool_in_background(p):
                 sessions.append({"theme": theme, "difficulty": difficulty,
                                  "questions": qs})
                 storage.set_json(_pool_key(pid), sessions)
+            # Daily quests come first; only once that pool is full do we brew
+            # expedition trivia with the leftover background time.
+            _fill_expeditions(pid)
         finally:
             with _refill_lock:
                 _refilling.discard(pid)
 
     threading.Thread(target=_worker, daemon=True).start()
+
+
+# ─── Expeditions: trivia side-quests earning Sparks + stickers ──────────────
+
+def _expool_key(pid):
+    return f"expool:{pid}"
+
+
+def _expool_take(pid, topic=None):
+    """Pop a pre-brewed expedition — the requested topic, or any if None."""
+    sessions = storage.get_json(_expool_key(pid), [])
+    for i, s in enumerate(sessions):
+        if topic is None or s.get("topic") == topic:
+            sessions.pop(i)
+            storage.set_json(_expool_key(pid), sessions)
+            return s
+    return None
+
+
+def _fill_expeditions(pid):
+    """Blocking; runs inside the refill worker after the quest pool is full."""
+    while len(storage.get_json(_expool_key(pid), [])) < EXPOOL_TARGET:
+        topic = random.choice(list(expeditions.TOPICS))
+        label, emoji, desc = expeditions.TOPICS[topic]
+        try:
+            qs = ai.generate_expedition(topic, label, desc, n=EXPEDITION_SIZE)
+            _note_ai(True, "expedition generation succeeded")
+        except Exception as e:
+            _note_ai(False, f"expedition generation failed: {e}")
+            return
+        qs = [q for q in qs if expeditions.valid_question(q)]
+        if len(qs) < 3:
+            return
+        sessions = storage.get_json(_expool_key(pid), [])
+        sessions.append({"topic": topic, "questions": qs})
+        storage.set_json(_expool_key(pid), sessions)
+
+
+def start_expedition(p, topic=None):
+    """Like start_quest, but trivia: 5 questions, Sparks instead of XP, no
+    streak/difficulty involvement. Serves a pre-brewed AI expedition when one
+    matches, else the curated offline trivia bank — always instant."""
+    if topic is not None and topic not in expeditions.TOPICS:
+        raise KeyError(topic)
+    qs = []
+    pooled = _expool_take(p["id"], topic)
+    if pooled:
+        topic = pooled["topic"]
+        qs = [q for q in pooled["questions"] if expeditions.valid_question(q)]
+    if len(qs) < 3:
+        topic = topic or random.choice(list(expeditions.TOPICS))
+        qs = expeditions.sample(topic, EXPEDITION_SIZE, p["offline"]["mastered"])
+    seen = set()
+    unique = []
+    for q in qs:
+        q["id"] = q.get("id") or bank.question_id(q)
+        if q["id"] not in seen:
+            seen.add(q["id"])
+            unique.append(bank.ensure_option_letters(q))
+    qs = unique[:EXPEDITION_SIZE]
+    refill_pool_in_background(p)
+
+    label, emoji, _ = expeditions.TOPICS[topic]
+    quest = {
+        "id": str(uuid.uuid4()),
+        "kind": "expedition",
+        "topic": topic,
+        "player_id": p["id"],
+        "questions": qs,
+        "results": [],
+        "xp_gained": 0,  # holds Sparks for expeditions
+        "correct_count": 0,
+        "streak_continued": False,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+    storage.set_json(_quest_key(quest["id"]), quest)
+    return {
+        "quest_id": quest["id"],
+        "kind": "expedition",
+        "topic": {"key": topic, "name": label, "emoji": emoji},
+        "questions": [sanitize_question(q) for q in qs],
+        "ai_graded": bool(config.MINIMAX_API_KEY),
+    }
 
 
 # ─── The quest lifecycle: start → answer × n → complete ─────────────────────
@@ -349,6 +442,7 @@ def start_quest(p, local_date=None):
     storage.set_json(_quest_key(quest["id"]), quest)
     return {
         "quest_id": quest["id"],
+        "kind": "quest",
         "questions": [sanitize_question(q) for q in questions],
         "ai_graded": bool(config.MINIMAX_API_KEY),
     }
@@ -375,24 +469,33 @@ def _grade(q, answer):
 
 def answer_question(quest, answer):
     """Grade the next unanswered question, update the profile, return the
-    reveal. Questions are strictly in order — the index is len(results)."""
+    reveal. Questions are strictly in order — the index is len(results).
+    Expeditions pay Sparks instead of XP and have no boss."""
     i = len(quest["results"])
     if i >= len(quest["questions"]):
         raise IndexError("quest already complete")
     q = quest["questions"][i]
-    is_boss = i == len(quest["questions"]) - 1
+    is_expedition = quest.get("kind") == "expedition"
+    is_boss = not is_expedition and i == len(quest["questions"]) - 1
 
     correct, feedback = _grade(q, answer)
-    xp = config.XP_PER_CORRECT * (config.XP_BOSS_MULTIPLIER if is_boss else 1)
+    if is_expedition:
+        xp = SPARKS_PER_CORRECT
+    else:
+        xp = config.XP_PER_CORRECT * (config.XP_BOSS_MULTIPLIER if is_boss else 1)
 
     p = get_player(quest["player_id"])
     if correct:
         quest["correct_count"] += 1
         quest["xp_gained"] += xp
-        p["xp"] += xp
-        if is_boss:
-            p["boss_wins"] += 1
-    profile_mod.record_answer(p, q["category"], correct)
+        if is_expedition:
+            p["sparks"] = p.get("sparks", 0) + xp
+        else:
+            p["xp"] += xp
+            if is_boss:
+                p["boss_wins"] += 1
+    if not is_expedition:  # expedition topics aren't MCA categories
+        profile_mod.record_answer(p, q["category"], correct)
     if q.get("id"):
         profile_mod.record_offline(p, q["id"], correct)
     save_player(p)
@@ -416,6 +519,8 @@ def complete_quest(quest):
     """Streak bonus, badges, history — then the quest record is deleted."""
     if len(quest["results"]) < len(quest["questions"]):
         raise ValueError("quest still has unanswered questions")
+    if quest.get("kind") == "expedition":
+        return _complete_expedition(quest)
     p = get_player(quest["player_id"])
 
     xp_gained = quest["xp_gained"]
@@ -457,6 +562,40 @@ def complete_quest(quest):
         ],
         "difficulty": p["difficulty"],
         "difficulty_delta": difficulty_delta,
+        "player": public_player(p),
+    }
+
+
+def _complete_expedition(quest):
+    """Award the topic sticker, log it, clean up. No streak/badge/difficulty
+    involvement — expeditions are their own light economy."""
+    p = get_player(quest["player_id"])
+    topic = quest["topic"]
+    stickers = p.setdefault("stickers", {})
+    stickers[topic] = stickers.get(topic, 0) + 1
+    save_player(p)
+
+    label, emoji, _ = expeditions.TOPICS[topic]
+    append_history(p["id"], {
+        "kind": "expedition",
+        "topic": topic,
+        "player_id": p["id"],
+        "player_name": p["name"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "score": quest["correct_count"],
+        "total": len(quest["questions"]),
+        "sparks_gained": quest["xp_gained"],
+    })
+    storage.store.delete(_quest_key(quest["id"]))
+    refill_pool_in_background(p)
+
+    return {
+        "kind": "expedition",
+        "score": quest["correct_count"],
+        "total": len(quest["questions"]),
+        "sparks_earned": quest["xp_gained"],
+        "sticker": {"key": topic, "name": label, "emoji": emoji,
+                    "count": stickers[topic]},
         "player": public_player(p),
     }
 

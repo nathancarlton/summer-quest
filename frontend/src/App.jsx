@@ -7,6 +7,7 @@ import Quest from './screens/Quest.jsx'
 import Summary from './screens/Summary.jsx'
 import Stats from './screens/Stats.jsx'
 import Leaderboard from './screens/Leaderboard.jsx'
+import Topics from './screens/Topics.jsx'
 
 const STORED_ID = 'sq_player_id'
 
@@ -77,6 +78,17 @@ export default function App() {
     }
   }
 
+  const startExpedition = async (topic) => {
+    setScreen('loading')
+    try {
+      setQuest(await api.startExpedition(player.id, topic))
+      setScreen('quest')
+    } catch (e) {
+      setError(e.message)
+      setScreen('error')
+    }
+  }
+
   const finishQuest = async () => {
     const s = await api.complete(quest.quest_id)
     setSummary(s)
@@ -135,10 +147,13 @@ export default function App() {
     return <Stats player={player} onBack={() => setScreen('home')} />
   if (screen === 'board')
     return <Leaderboard player={player} onBack={() => setScreen('home')} />
+  if (screen === 'topics')
+    return <Topics onPick={startExpedition} onBack={() => setScreen('home')} />
   return (
     <Home
       player={player}
       onStart={startQuest}
+      onExpedition={() => setScreen('topics')}
       onStats={() => setScreen('stats')}
       onBoard={() => setScreen('board')}
       onSwitch={switchPlayer}

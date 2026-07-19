@@ -26,6 +26,11 @@ export const api = {
   createPlayer: (name, prefs) =>
     req('/api/v1/players', { method: 'POST', body: JSON.stringify({ name, prefs }) }),
   getPlayer: (id) => req(`/api/v1/players/${id}`),
+  startExpedition: (id, topic) =>
+    req(`/api/v1/players/${id}/expedition`, {
+      method: 'POST',
+      body: JSON.stringify({ topic }),
+    }),
   startQuest: (id) =>
     req(`/api/v1/players/${id}/quest`, {
       method: 'POST',
