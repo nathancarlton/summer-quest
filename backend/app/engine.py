@@ -96,6 +96,7 @@ def _normalize(p):
     p.setdefault("difficulty", 2)
     p.setdefault("sparks", 0)
     p.setdefault("stickers", {})
+    p.setdefault("active_quest", None)
     return p
 
 
@@ -438,6 +439,11 @@ def start_expedition(p, topic=None):
     """Like start_quest, but trivia: 5 questions, Sparks instead of XP, no
     streak/difficulty involvement. Serves a pre-brewed AI expedition when one
     matches, else the curated offline trivia bank — always instant."""
+    # No escaping into an expedition mid-quest (or vice versa): an
+    # unfinished session of any kind resumes instead.
+    active = active_quest(p)
+    if active:
+        return _resume_payload(active)
     if topic is not None and topic not in expeditions.TOPICS:
         raise KeyError(topic)
     qs = []
@@ -459,6 +465,7 @@ def start_expedition(p, topic=None):
     refill_pool_in_background(p)
 
     label, emoji, _ = expeditions.TOPICS[topic]
+    now = datetime.now(timezone.utc).isoformat()
     quest = {
         "id": str(uuid.uuid4()),
         "kind": "expedition",
@@ -469,15 +476,22 @@ def start_expedition(p, topic=None):
         "xp_gained": 0,  # holds Sparks for expeditions
         "correct_count": 0,
         "streak_continued": False,
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": now,
+        "q_started_at": now,
     }
+    p["active_quest"] = quest["id"]
+    save_player(p)
     storage.set_json(_quest_key(quest["id"]), quest)
     return {
         "quest_id": quest["id"],
         "kind": "expedition",
         "topic": {"key": topic, "name": label, "emoji": emoji},
         "questions": [sanitize_question(q) for q in qs],
+        "answered": 0,
+        "correct_so_far": 0,
+        "resumed": False,
         "ai_graded": bool(config.MINIMAX_API_KEY),
+        "question_seconds": config.QUESTION_SECONDS,
     }
 
 
@@ -491,14 +505,51 @@ def get_quest(qid):
     return storage.get_json(_quest_key(qid))
 
 
+def active_quest(p):
+    """The player's unfinished session, if any. This is the anti-rage-quit
+    core: while one exists, the start endpoints return IT instead of a fresh
+    session — closing the browser mid-game changes nothing, because every
+    answered question already lives here on the server."""
+    qid = p.get("active_quest")
+    if not qid:
+        return None
+    return get_quest(qid)
+
+
+def _resume_payload(quest):
+    """Re-enter an in-flight session at the first unanswered question. The
+    current question's clock restarts (closing the tab shouldn't auto-fail
+    the question a kid was reading), but answered ones are locked in."""
+    quest["q_started_at"] = datetime.now(timezone.utc).isoformat()
+    storage.set_json(_quest_key(quest["id"]), quest)
+    out = {
+        "quest_id": quest["id"],
+        "kind": quest.get("kind", "quest"),
+        "questions": [sanitize_question(q) for q in quest["questions"]],
+        "answered": len(quest["results"]),
+        "correct_so_far": quest["correct_count"],
+        "resumed": True,
+        "ai_graded": bool(config.MINIMAX_API_KEY),
+        "question_seconds": config.QUESTION_SECONDS,
+    }
+    if quest.get("kind") == "expedition":
+        label, emoji, _ = expeditions.TOPICS[quest["topic"]]
+        out["topic"] = {"key": quest["topic"], "name": label, "emoji": emoji}
+    return out
+
+
 def start_quest(p, local_date=None):
+    # Unfinished session (of either kind)? You finish it — no fresh starts.
+    active = active_quest(p)
+    if active:
+        return _resume_payload(active)
+
     today = _client_date(local_date)
     streak_continued = _update_streak(p, today)
     n = config.QUESTIONS_PER_SESSION
     questions = _fetch_questions(p, n)
-    save_player(p)
-    refill_pool_in_background(p)
 
+    now = datetime.now(timezone.utc).isoformat()
     quest = {
         "id": str(uuid.uuid4()),
         "player_id": p["id"],
@@ -507,14 +558,22 @@ def start_quest(p, local_date=None):
         "xp_gained": 0,
         "correct_count": 0,
         "streak_continued": streak_continued,
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": now,
+        "q_started_at": now,
     }
+    p["active_quest"] = quest["id"]
+    save_player(p)
+    refill_pool_in_background(p)
     storage.set_json(_quest_key(quest["id"]), quest)
     return {
         "quest_id": quest["id"],
         "kind": "quest",
         "questions": [sanitize_question(q) for q in questions],
+        "answered": 0,
+        "correct_so_far": 0,
+        "resumed": False,
         "ai_graded": bool(config.MINIMAX_API_KEY),
+        "question_seconds": config.QUESTION_SECONDS,
     }
 
 
@@ -537,7 +596,15 @@ def _grade(q, answer):
     return correct, q.get("explanation", "")
 
 
-def answer_question(quest, answer):
+TIMEOUT_FEEDBACK = "⏰ Time's up! No worries — read fast, think smart, and grab the next one."
+# Server-side backstop past the client's countdown. Generous because legit
+# things eat clock the client knows about and we don't (boss-intro reading,
+# a slow network, a tab briefly backgrounded) — the client timer is the
+# pacing enforcer; this only catches a client that's lying or broken.
+TIMEOUT_GRACE_SECONDS = 60
+
+
+def answer_question(quest, answer, timed_out=False):
     """Grade the next unanswered question, update the profile, return the
     reveal. Questions are strictly in order — the index is len(results).
     Expeditions pay Sparks instead of XP and have no boss."""
@@ -548,7 +615,18 @@ def answer_question(quest, answer):
     is_expedition = quest.get("kind") == "expedition"
     is_boss = not is_expedition and i == len(quest["questions"]) - 1
 
-    correct, feedback = _grade(q, answer)
+    if not timed_out and quest.get("q_started_at"):
+        elapsed = (
+            datetime.now(timezone.utc)
+            - datetime.fromisoformat(quest["q_started_at"])
+        ).total_seconds()
+        timed_out = elapsed > config.QUESTION_SECONDS + TIMEOUT_GRACE_SECONDS
+
+    if timed_out:
+        correct, feedback = False, TIMEOUT_FEEDBACK
+        answer = answer or "(time ran out)"
+    else:
+        correct, feedback = _grade(q, answer)
     if is_expedition:
         xp = SPARKS_PER_CORRECT
     else:
@@ -577,6 +655,7 @@ def answer_question(quest, answer):
         "answer": answer,
         "feedback": feedback,
     })
+    quest["q_started_at"] = datetime.now(timezone.utc).isoformat()  # next q's clock
     storage.set_json(_quest_key(quest["id"]), quest)
 
     return {
@@ -610,6 +689,7 @@ def complete_quest(quest):
     p["sessions_completed"] = p.get("sessions_completed", 0) + 1
     new_badges = profile_mod.check_badges(p, quest["correct_count"] == total)
     difficulty_delta = profile_mod.adjust_difficulty(p, quest["correct_count"], total)
+    p["active_quest"] = None
     save_player(p)
 
     summary = {
@@ -649,6 +729,7 @@ def _complete_expedition(quest):
     topic = quest["topic"]
     stickers = p.setdefault("stickers", {})
     stickers[topic] = stickers.get(topic, 0) + 1
+    p["active_quest"] = None
     save_player(p)
 
     label, emoji, _ = expeditions.TOPICS[topic]

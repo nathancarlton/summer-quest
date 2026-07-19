@@ -36,11 +36,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ local_date: localDate() }),
     }),
-  answer: (questId, answer) =>
+  answer: (questId, answer, timedOut = false) =>
     req(`/api/v1/quests/${questId}/answer`, {
       method: 'POST',
-      body: JSON.stringify({ answer }),
+      body: JSON.stringify({ answer, timed_out: timedOut }),
     }),
+  active: (id) => req(`/api/v1/players/${id}/active`),
   complete: (questId) => req(`/api/v1/quests/${questId}/complete`, { method: 'POST' }),
   challenge: (questId, index) =>
     req(`/api/v1/quests/${questId}/challenge`, {

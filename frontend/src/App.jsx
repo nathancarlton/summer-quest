@@ -19,14 +19,20 @@ export default function App() {
   const [roster, setRoster] = useState([])
   const [quest, setQuest] = useState(null)
   const [summary, setSummary] = useState(null)
+  const [active, setActive] = useState(null) // unfinished session info
   const [error, setError] = useState('')
+
+  const refreshActive = (p) =>
+    api.active(p.id).then(setActive).catch(() => setActive(null))
 
   useEffect(() => {
     const boot = async () => {
       const savedId = localStorage.getItem(STORED_ID)
       if (savedId) {
         try {
-          setPlayer(await api.getPlayer(savedId))
+          const p = await api.getPlayer(savedId)
+          setPlayer(p)
+          refreshActive(p)
           setScreen('home')
           return
         } catch {
@@ -53,6 +59,7 @@ export default function App() {
       const p = await api.getPlayer(id)
       localStorage.setItem(STORED_ID, p.id)
       setPlayer(p)
+      refreshActive(p)
       setScreen('home')
     } catch (e) {
       setError(e.message)
@@ -67,11 +74,25 @@ export default function App() {
     setScreen('home')
   }
 
+  const enterSession = async (resp) => {
+    // A resumed session where everything was already answered just needs
+    // its finale — go straight to the summary.
+    if (resp.resumed && resp.answered >= resp.questions.length) {
+      const s = await api.complete(resp.quest_id)
+      setSummary(s)
+      setPlayer(s.player)
+      setActive(null)
+      setScreen('summary')
+      return
+    }
+    setQuest(resp)
+    setScreen('quest')
+  }
+
   const startQuest = async () => {
     setScreen('loading')
     try {
-      setQuest(await api.startQuest(player.id))
-      setScreen('quest')
+      await enterSession(await api.startQuest(player.id))
     } catch (e) {
       setError(e.message)
       setScreen('error')
@@ -81,8 +102,7 @@ export default function App() {
   const startExpedition = async (topic) => {
     setScreen('loading')
     try {
-      setQuest(await api.startExpedition(player.id, topic))
-      setScreen('quest')
+      await enterSession(await api.startExpedition(player.id, topic))
     } catch (e) {
       setError(e.message)
       setScreen('error')
@@ -94,12 +114,15 @@ export default function App() {
     setSummary(s)
     setPlayer(s.player)
     setQuest(null)
+    setActive(null)
     setScreen('summary')
   }
 
   const goHome = async () => {
     try {
-      setPlayer(await api.getPlayer(player.id)) // refresh XP/badges
+      const p = await api.getPlayer(player.id) // refresh XP/badges
+      setPlayer(p)
+      refreshActive(p)
     } catch { /* keep the copy we have */ }
     setScreen('home')
   }
@@ -152,6 +175,7 @@ export default function App() {
   return (
     <Home
       player={player}
+      active={active}
       onStart={startQuest}
       onExpedition={() => setScreen('topics')}
       onStats={() => setScreen('stats')}

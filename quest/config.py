@@ -26,6 +26,8 @@ SYNC_TOKEN = os.getenv("SYNC_TOKEN", "")
 # --- Session shape ---
 QUESTIONS_PER_SESSION = int(os.getenv("QUESTIONS_PER_SESSION", "10"))
 LA_RATIO = float(os.getenv("LA_RATIO", "0.7"))  # 70% language arts by default
+# Per-question time limit (web): 10 × 90s ≈ a 15-minute daily session.
+QUESTION_SECONDS = int(os.getenv("QUESTION_SECONDS", "90"))
 
 GRADE_LEVEL = "6th grade (incoming), Minnesota MCA-aligned"
 

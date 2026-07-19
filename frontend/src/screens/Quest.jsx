@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AiDot from '../AiDot.jsx'
 import { api } from '../api.js'
 import { CATEGORY_LABELS, CHEERS, ENCOURAGE, pick } from '../constants.js'
@@ -37,14 +37,18 @@ function BossIntro({ correctSoFar, total, onReady }) {
 // end in a double-XP boss battle; expeditions are 5 trivia questions paying
 // Sparks (⚡) instead of XP.
 export default function Quest({ quest, onFinish }) {
-  const [index, setIndex] = useState(0)
+  // Resumed sessions re-enter at the first unanswered question, with the
+  // earlier score intact — closing the browser doesn't reset anything.
+  const [index, setIndex] = useState(quest.answered || 0)
   const [written, setWritten] = useState('')
   const [result, setResult] = useState(null) // grading reveal for current q
   const [cheer, setCheer] = useState('')
-  const [correctSoFar, setCorrectSoFar] = useState(0)
+  const [correctSoFar, setCorrectSoFar] = useState(quest.correct_so_far || 0)
   const [bossFaced, setBossFaced] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const questionSeconds = quest.question_seconds || 90
+  const [secondsLeft, setSecondsLeft] = useState(questionSeconds)
   // Appeals: null | 'busy' | {overturned, message, xp_awarded} — reset per question
   const [challenge, setChallenge] = useState(null)
   const [reported, setReported] = useState(false)
@@ -56,13 +60,13 @@ export default function Quest({ quest, onFinish }) {
   const isLastReveal = result && index === questions.length - 1
   const pointsLabel = isExpedition ? '⚡' : 'XP'
 
-  const submit = async (answer) => {
+  const submit = async (answer, timedOut = false) => {
     if (busy || result) return
     setBusy(true)
     setError('')
     try {
-      const r = await api.answer(quest.quest_id, answer)
-      setCheer(pick(r.correct ? CHEERS : ENCOURAGE))
+      const r = await api.answer(quest.quest_id, answer, timedOut)
+      setCheer(timedOut ? "⏰ Time's up!" : pick(r.correct ? CHEERS : ENCOURAGE))
       if (r.correct) setCorrectSoFar((c) => c + 1)
       setResult(r)
     } catch (e) {
@@ -87,6 +91,10 @@ export default function Quest({ quest, onFinish }) {
     setWritten('')
     setChallenge(null)
     setReported(false)
+    // Reset the clock in the SAME batch as the index change — otherwise a
+    // just-timed-out question leaves secondsLeft at 0 for one commit and the
+    // auto-submit instantly fails the next question.
+    setSecondsLeft(questionSeconds)
     setIndex(index + 1)
   }
 
@@ -123,12 +131,33 @@ export default function Quest({ quest, onFinish }) {
 
   const showBossIntro = isBoss && !bossFaced && !result
 
+  // Countdown runs only while a question is live: paused during the reveal
+  // and the boss intro. Hitting zero auto-submits as a timeout.
+  const timerRunning = !result && !showBossIntro && !busy
+  useEffect(() => {
+    setSecondsLeft(questionSeconds)
+  }, [index, bossFaced, questionSeconds])
+  useEffect(() => {
+    if (!timerRunning) return
+    const t = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000)
+    return () => clearInterval(t)
+  }, [timerRunning, index])
+  useEffect(() => {
+    if (secondsLeft === 0 && timerRunning) submit('', true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondsLeft, timerRunning])
+
   return (
     <div className="shell">
       <div className="quest-top">
         <span className="q-count">
           Question {index + 1}/{questions.length}
         </span>
+        {timerRunning && (
+          <span className={`q-timer ${secondsLeft <= 15 ? 'q-timer-low' : ''}`}>
+            ⏱ {secondsLeft}
+          </span>
+        )}
         <span className="q-cat">
           {header} <AiDot />
         </span>
@@ -144,7 +173,10 @@ export default function Quest({ quest, onFinish }) {
         <BossIntro
           correctSoFar={correctSoFar}
           total={questions.length}
-          onReady={() => setBossFaced(true)}
+          onReady={() => {
+            setSecondsLeft(questionSeconds) // boss clock starts NOW, same batch
+            setBossFaced(true)
+          }}
         />
       ) : (
         <>

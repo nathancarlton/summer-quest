@@ -44,7 +44,8 @@ class QuestStart(BaseModel):
 
 
 class AnswerBody(BaseModel):
-    answer: str = Field(max_length=2000)
+    answer: str = Field(default="", max_length=2000)
+    timed_out: bool = False
 
 
 @app.get("/")
@@ -123,6 +124,22 @@ def get_profile(pid: str):
     return engine.public_player(_player_or_404(pid))
 
 
+@app.get("/api/v1/players/{pid}/active")
+def get_active(pid: str):
+    """Is there an unfinished session? Powers the home screen's forced
+    'Finish your quest!' button — there's no fresh-start path around it."""
+    p = _player_or_404(pid)
+    quest = engine.active_quest(p)
+    if not quest:
+        return {"active": False}
+    return {
+        "active": True,
+        "kind": quest.get("kind", "quest"),
+        "answered": len(quest["results"]),
+        "total": len(quest["questions"]),
+    }
+
+
 @app.get("/api/v1/players/{pid}/history")
 def get_history(pid: str):
     _player_or_404(pid)
@@ -170,7 +187,7 @@ def _quest_or_404(qid):
 def answer_question(qid: str, body: AnswerBody):
     quest = _quest_or_404(qid)
     try:
-        return engine.answer_question(quest, body.answer)
+        return engine.answer_question(quest, body.answer, body.timed_out)
     except IndexError:
         raise HTTPException(409, "all questions already answered")
 

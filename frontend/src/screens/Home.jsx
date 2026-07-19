@@ -30,7 +30,8 @@ export function Hud({ player }) {
   )
 }
 
-export default function Home({ player, onStart, onExpedition, onStats, onBoard, onSwitch }) {
+export default function Home({ player, active, onStart, onExpedition, onStats, onBoard, onSwitch }) {
+  const hasActive = active?.active
   return (
     <div className="shell center">
       <h1 className="logo">🗺️ Summer Quest</h1>
@@ -39,12 +40,22 @@ export default function Home({ player, onStart, onExpedition, onStats, onBoard, 
         <h2>Welcome back, {player.name}! 👋</h2>
         <Hud player={player} />
         <div className="stack">
-          <button className="btn primary big" onClick={onStart}>
-            ⚔️ Start today's quest
-          </button>
-          <button className="btn big" onClick={onExpedition}>
-            🧭 Expedition <span className="muted">— trivia for ⚡ & stickers</span>
-          </button>
+          {hasActive ? (
+            // An unfinished session must be finished — no fresh starts.
+            <button className="btn primary big" onClick={onStart}>
+              ▶️ Finish your {active.kind === 'expedition' ? 'expedition' : 'quest'}!{' '}
+              (Question {Math.min(active.answered + 1, active.total)}/{active.total})
+            </button>
+          ) : (
+            <>
+              <button className="btn primary big" onClick={onStart}>
+                ⚔️ Start today's quest
+              </button>
+              <button className="btn big" onClick={onExpedition}>
+                🧭 Expedition <span className="muted">— trivia for ⚡ & stickers</span>
+              </button>
+            </>
+          )}
           <div className="row">
             <button className="btn grow" onClick={onStats}>
               📊 My stats
