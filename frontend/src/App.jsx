@@ -6,6 +6,7 @@ import Home from './screens/Home.jsx'
 import Quest from './screens/Quest.jsx'
 import Summary from './screens/Summary.jsx'
 import Stats from './screens/Stats.jsx'
+import Leaderboard from './screens/Leaderboard.jsx'
 
 const STORED_ID = 'sq_player_id'
 
@@ -132,11 +133,14 @@ export default function App() {
     return <Summary summary={summary} onHome={goHome} />
   if (screen === 'stats')
     return <Stats player={player} onBack={() => setScreen('home')} />
+  if (screen === 'board')
+    return <Leaderboard player={player} onBack={() => setScreen('home')} />
   return (
     <Home
       player={player}
       onStart={startQuest}
       onStats={() => setScreen('stats')}
+      onBoard={() => setScreen('board')}
       onSwitch={switchPlayer}
     />
   )

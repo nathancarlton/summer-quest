@@ -21,6 +21,7 @@ const localDate = () => new Date().toLocaleDateString('en-CA')
 
 export const api = {
   aiStatus: (probe) => req(`/api/v1/ai/status${probe ? '?probe=true' : ''}`),
+  leaderboard: () => req('/api/v1/leaderboard'),
   listPlayers: () => req('/api/v1/players'),
   createPlayer: (name, prefs) =>
     req('/api/v1/players', { method: 'POST', body: JSON.stringify({ name, prefs }) }),

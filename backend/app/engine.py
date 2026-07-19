@@ -43,6 +43,9 @@ def create_player(name, prefs):
     p = profile_mod._default(name)
     p["prefs"] = prefs or {}
     save_player(p)
+    # Start brewing AI questions immediately — by the time the kid finishes
+    # looking at the home screen, their first quest may already be AI-fresh.
+    refill_pool_in_background(p)
     return p
 
 
@@ -54,6 +57,27 @@ def list_players():
             out.append(p)
     out.sort(key=lambda p: p.get("name", "").lower())
     return out
+
+
+def leaderboard():
+    """Family standings, ranked by XP. Ties break alphabetically."""
+    rows = []
+    for p in list_players():
+        p = _normalize(p)
+        num, title, _ = profile_mod.level_info(p["xp"])
+        rows.append({
+            "id": p["id"],
+            "name": p["name"],
+            "xp": p["xp"],
+            "streak": p["streak"],
+            "level_num": num,
+            "level_title": title,
+            "badges": len(p["badges"]),
+            "sessions": p.get("sessions_completed", 0),
+            "last_played": p.get("last_played"),
+        })
+    rows.sort(key=lambda r: (-r["xp"], r["name"].lower()))
+    return rows
 
 
 def _normalize(p):

@@ -568,6 +568,65 @@ textarea:focus {
   text-align: left;
 }
 
+/* ─── Leaderboard ─── */
+.lb-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  text-align: left;
+}
+
+.lb-you {
+  border-color: var(--accent);
+}
+
+.lb-rank {
+  font-size: 1.3rem;
+  min-width: 34px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.lb-who {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.lb-name {
+  font-weight: 700;
+}
+
+.lb-tag {
+  color: var(--accent);
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.lb-level {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.lb-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.lb-xp {
+  font-weight: 700;
+}
+
+.lb-small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 /* ─── Spinner ─── */
 .spinner {
   width: 44px;

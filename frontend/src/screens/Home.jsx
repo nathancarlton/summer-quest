@@ -29,7 +29,7 @@ export function Hud({ player }) {
   )
 }
 
-export default function Home({ player, onStart, onStats, onSwitch }) {
+export default function Home({ player, onStart, onStats, onBoard, onSwitch }) {
   return (
     <div className="shell center">
       <h1 className="logo">🗺️ Summer Quest</h1>
@@ -41,9 +41,14 @@ export default function Home({ player, onStart, onStats, onSwitch }) {
           <button className="btn primary big" onClick={onStart}>
             ⚔️ Start today's quest
           </button>
-          <button className="btn" onClick={onStats}>
-            📊 My stats
-          </button>
+          <div className="row">
+            <button className="btn grow" onClick={onStats}>
+              📊 My stats
+            </button>
+            <button className="btn grow" onClick={onBoard}>
+              🏆 Leaderboard
+            </button>
+          </div>
         </div>
       </div>
       <button className="link" onClick={onSwitch}>

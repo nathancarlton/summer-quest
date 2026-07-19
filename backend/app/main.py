@@ -87,7 +87,16 @@ def _player_or_404(pid):
 
 @app.get("/api/v1/players/{pid}")
 def get_player(pid: str):
-    return engine.public_player(_player_or_404(pid))
+    p = _player_or_404(pid)
+    # Opening the app is the earliest signal a quest is coming — start brewing
+    # AI questions now so even the FIRST quest of the day can be fresh.
+    engine.refill_pool_in_background(p)
+    return engine.public_player(p)
+
+
+@app.get("/api/v1/leaderboard")
+def leaderboard():
+    return engine.leaderboard()
 
 
 # Cross-device read per the README's original contract.
