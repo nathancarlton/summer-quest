@@ -45,6 +45,9 @@ export default function Quest({ quest, onFinish }) {
   const [bossFaced, setBossFaced] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Appeals: null | 'busy' | {overturned, message, xp_awarded} — reset per question
+  const [challenge, setChallenge] = useState(null)
+  const [reported, setReported] = useState(false)
 
   const questions = quest.questions
   const q = questions[index]
@@ -82,7 +85,31 @@ export default function Quest({ quest, onFinish }) {
     }
     setResult(null)
     setWritten('')
+    setChallenge(null)
+    setReported(false)
     setIndex(index + 1)
+  }
+
+  const challengeRuling = async () => {
+    if (challenge) return
+    setChallenge('busy')
+    try {
+      const c = await api.challenge(quest.quest_id, index)
+      setChallenge(c)
+      if (c.overturned) setCorrectSoFar((n) => n + 1)
+    } catch (e) {
+      setChallenge({ overturned: false, message: e.message })
+    }
+  }
+
+  const reportIssue = async () => {
+    if (reported) return
+    setReported(true)
+    try {
+      await api.report(quest.quest_id, index)
+    } catch {
+      /* fire-and-forget: don't interrupt the kid's flow */
+    }
   }
 
   const header = isExpedition
@@ -184,7 +211,43 @@ export default function Quest({ quest, onFinish }) {
                   </div>
                 )}
                 {result.feedback && <p className="result-feedback">{result.feedback}</p>}
-                <button className="btn primary big" onClick={next} disabled={busy}>
+
+                {!result.correct && (
+                  <div className="appeal-zone">
+                    {challenge === null && (
+                      <button className="btn appeal-btn" onClick={challengeRuling}>
+                        ⚖️ Wait — I think I'm right! Challenge it
+                      </button>
+                    )}
+                    {challenge === 'busy' && (
+                      <p className="muted center-text">
+                        ⚖️ The appeals judge is reviewing your answer…
+                      </p>
+                    )}
+                    {challenge && challenge !== 'busy' && (
+                      <div className={`verdict ${challenge.overturned ? 'verdict-win' : ''}`}>
+                        {challenge.overturned && (
+                          <div className="result-xp">
+                            ⚖️ OVERRULED — you were right! +{challenge.xp_awarded}{' '}
+                            {pointsLabel}
+                          </div>
+                        )}
+                        <p className="result-feedback">{challenge.message}</p>
+                      </div>
+                    )}
+                    <button
+                      className="link"
+                      onClick={reportIssue}
+                      disabled={reported}
+                    >
+                      {reported
+                        ? '📮 Sent to the game developers ✅'
+                        : '📮 Report this question to the game developers'}
+                    </button>
+                  </div>
+                )}
+
+                <button className="btn primary big" onClick={next} disabled={busy || challenge === 'busy'}>
                   {busy
                     ? 'Finishing…'
                     : isLastReveal

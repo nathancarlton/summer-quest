@@ -590,6 +590,29 @@ textarea:focus {
   line-height: 1.45;
 }
 
+/* ─── Appeals + reports ─── */
+.appeal-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appeal-btn {
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.verdict {
+  border-radius: 12px;
+  border: 2px dashed var(--border);
+  padding: 10px;
+}
+
+.verdict-win {
+  border-color: var(--good);
+  background: var(--win-bg);
+}
+
 /* ─── Tables ─── */
 .summary-table,
 .stats-table {

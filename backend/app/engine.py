@@ -500,7 +500,13 @@ def answer_question(quest, answer):
         profile_mod.record_offline(p, q["id"], correct)
     save_player(p)
 
-    quest["results"].append({"category": q["category"], "correct": correct})
+    # `answer` and `feedback` are kept so a challenge can re-try the ruling.
+    quest["results"].append({
+        "category": q["category"],
+        "correct": correct,
+        "answer": answer,
+        "feedback": feedback,
+    })
     storage.set_json(_quest_key(quest["id"]), quest)
 
     return {
@@ -598,6 +604,104 @@ def _complete_expedition(quest):
                     "count": stickers[topic]},
         "player": public_player(p),
     }
+
+
+# ─── Challenges (appeals) + issue reports ───────────────────────────────────
+
+REPORTS_KEY = "reports"
+MAX_REPORTS = 200
+
+
+def file_report(player, quest, index, rtype, note=""):
+    """Store an issue for the parent to review at GET /api/v1/reports —
+    full context: the question (with official answer), what the kid wrote,
+    and the feedback they were shown."""
+    q = quest["questions"][index]
+    entry = quest["results"][index] if index < len(quest["results"]) else {}
+    reports = storage.get_json(REPORTS_KEY, [])
+    reports.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "type": rtype,  # challenge_won | manual
+        "player_name": player.get("name"),
+        "kind": quest.get("kind", "quest"),
+        "question": q,
+        "student_answer": entry.get("answer"),
+        "feedback_shown": entry.get("feedback"),
+        "note": str(note)[:300],
+    })
+    storage.set_json(REPORTS_KEY, reports[-MAX_REPORTS:])
+
+
+def get_reports():
+    return storage.get_json(REPORTS_KEY, [])
+
+
+def clear_reports():
+    storage.store.delete(REPORTS_KEY)
+
+
+def challenge_answer(quest, index):
+    """Adversarial re-evaluation of a ruling the learner disputes. One
+    challenge per question. An overturn pays the XP/Sparks retroactively,
+    corrects every stat the original ruling touched, and auto-files a
+    report so the parent sees each AI mistake."""
+    if index >= len(quest["results"]):
+        raise IndexError("that question hasn't been answered")
+    entry = quest["results"][index]
+    if entry.get("correct"):
+        raise ValueError("that answer was already ruled correct")
+    if entry.get("challenged"):
+        raise ValueError("that ruling has already been challenged")
+    if not config.MINIMAX_API_KEY:
+        return {"overturned": False, "unavailable": True,
+                "message": "The appeals judge is offline right now — ask a grown-up to check this one."}
+
+    q = quest["questions"][index]
+    try:
+        overturned, message = ai.challenge_grading(
+            q, entry.get("answer", ""), entry.get("feedback", "")
+        )
+        _note_ai(True, "challenge review succeeded")
+    except Exception as e:
+        _note_ai(False, f"challenge review failed: {e}")
+        return {"overturned": False, "unavailable": True,
+                "message": "The appeals judge couldn't be reached — try again in a minute."}
+
+    entry["challenged"] = True
+    xp_awarded = 0
+    p = get_player(quest["player_id"])
+    if overturned:
+        entry["correct"] = True
+        is_expedition = quest.get("kind") == "expedition"
+        is_boss = not is_expedition and index == len(quest["questions"]) - 1
+        if is_expedition:
+            xp_awarded = SPARKS_PER_CORRECT
+            p["sparks"] = p.get("sparks", 0) + xp_awarded
+        else:
+            xp_awarded = config.XP_PER_CORRECT * (
+                config.XP_BOSS_MULTIPLIER if is_boss else 1
+            )
+            p["xp"] += xp_awarded
+            if is_boss:
+                p["boss_wins"] += 1
+            # The original ruling logged answered+wrong; flip it to correct.
+            cat = p["categories"].get(q["category"])
+            if cat:
+                cat["correct"] += 1
+            p["totals"]["correct"] += 1
+            key = ("math_correct"
+                   if config.CATEGORIES.get(q["category"]) == "math"
+                   else "la_correct")
+            p["totals"][key] += 1
+        quest["correct_count"] += 1
+        quest["xp_gained"] += xp_awarded
+        if q.get("id"):
+            profile_mod.record_offline(p, q["id"], True)
+        save_player(p)
+        file_report(p, quest, index, "challenge_won",
+                    note="auto-filed: the appeals judge overturned this ruling")
+    storage.set_json(_quest_key(quest["id"]), quest)
+    return {"overturned": overturned, "message": message, "xp_awarded": xp_awarded}
 
 
 # ─── History + CLI sync ──────────────────────────────────────────────────────

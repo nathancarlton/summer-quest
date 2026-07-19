@@ -177,6 +177,58 @@ def complete_quest(qid: str):
         raise HTTPException(409, str(e))
 
 
+class ChallengeBody(BaseModel):
+    index: int = Field(ge=0, le=50)
+
+
+@app.post("/api/v1/quests/{qid}/challenge")
+def challenge_answer(qid: str, body: ChallengeBody):
+    """The learner disputes a ruling — an independent AI appeals judge
+    re-evaluates. One challenge per question."""
+    quest = _quest_or_404(qid)
+    try:
+        return engine.challenge_answer(quest, body.index)
+    except IndexError:
+        raise HTTPException(409, "that question hasn't been answered yet")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+class ReportBody(BaseModel):
+    index: int = Field(ge=0, le=50)
+    note: str = Field(default="", max_length=300)
+
+
+@app.post("/api/v1/quests/{qid}/report")
+def report_issue(qid: str, body: ReportBody):
+    quest = _quest_or_404(qid)
+    p = engine.get_player(quest["player_id"]) or {}
+    engine.file_report(p, quest, body.index, "manual", body.note)
+    return {"ok": True}
+
+
+def _require_reports_auth(authorization: str, token: str):
+    """Reports contain question text + kids' answers; if SYNC_TOKEN is set,
+    require it (header or ?token=). Unset = open, fine for a family app."""
+    if config.SYNC_TOKEN and authorization != f"Bearer {config.SYNC_TOKEN}" \
+            and token != config.SYNC_TOKEN:
+        raise HTTPException(401, "reports require the sync token")
+
+
+@app.get("/api/v1/reports")
+def list_reports(authorization: str = Header(default=""), token: str = ""):
+    """Parent view: open this URL in a browser to read flagged questions."""
+    _require_reports_auth(authorization, token)
+    return engine.get_reports()
+
+
+@app.delete("/api/v1/reports")
+def clear_reports(authorization: str = Header(default=""), token: str = ""):
+    _require_reports_auth(authorization, token)
+    engine.clear_reports()
+    return {"ok": True}
+
+
 # ─── CLI sync (the contract documented in quest/sync.py) ─────────────────────
 
 @app.post("/api/v1/progress")

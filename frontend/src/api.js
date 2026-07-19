@@ -42,6 +42,16 @@ export const api = {
       body: JSON.stringify({ answer }),
     }),
   complete: (questId) => req(`/api/v1/quests/${questId}/complete`, { method: 'POST' }),
+  challenge: (questId, index) =>
+    req(`/api/v1/quests/${questId}/challenge`, {
+      method: 'POST',
+      body: JSON.stringify({ index }),
+    }),
+  report: (questId, index) =>
+    req(`/api/v1/quests/${questId}/report`, {
+      method: 'POST',
+      body: JSON.stringify({ index }),
+    }),
   updatePrefs: (id, prefs) =>
     req(`/api/v1/players/${id}/prefs`, { method: 'POST', body: JSON.stringify({ prefs }) }),
 }

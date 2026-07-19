@@ -74,6 +74,9 @@ Weave everything into ONE fun setting: {theme}. {favorites} Let details recur \
 so it feels like a connected story world, not random trivia.
 
 At least one question should be type "short" (a one-sentence written answer). \
+Short-answer tasks must be PRECISELY gradable: state exactly what to produce, \
+and never ask for something with no correct form (e.g., a list needs THREE OR \
+MORE items to demonstrate commas — never ask for "two items in a list").
 For any "reading" question, include a 3-5 sentence original passage in "passage".
 
 Each JSON object:
@@ -285,8 +288,58 @@ Student's answer: {student}
 Read the student's answer CAREFULLY and completely — do not overlook any mistake. \
 Be warm and encouraging, but honest: name EVERY specific fix needed so nothing \
 slips by (if you say "great job", still list what's wrong).
+First sanity-check the QUESTION itself: if it is ambiguous or flawed and the \
+student's answer is a reasonable reading of it, give the student the benefit of \
+the doubt and mark correct=true.
 Return ONLY JSON: {{"correct": true|false, "feedback": "2-3 encouraging, specific \
 sentences that celebrate what's right and clearly point out each thing to fix."}}"""
+
+
+CHALLENGE_PROMPT = """A {grade} student has CHALLENGED the grading of a practice \
+question. You are the independent appeals judge. Re-evaluate from scratch, fairly \
+and rigorously — the original grader may have been wrong, and the QUESTION ITSELF \
+may be flawed or ambiguous. If the question is flawed, or the student's answer is \
+a defensible reading of it, rule FOR the student.
+
+Question: {question}
+{passage_block}{options_block}Official answer: {expected}
+Student's answer: {student}
+Feedback the student received: {feedback}
+
+Return ONLY JSON: {{"student_is_right": true|false, "message": "2-3 kid-friendly \
+sentences delivering the ruling honestly — celebrate an overturn; if upheld, \
+explain kindly and clearly why the original ruling stands."}}"""
+
+
+def challenge_grading(question, student_answer, original_feedback=""):
+    """Adversarial re-review of a disputed ruling. Returns (overturned, message)."""
+    passage_block = (
+        f"Passage: {question['passage']}\n" if question.get("passage") else ""
+    )
+    options_block = (
+        "Options:\n" + "\n".join(question["options"]) + "\n"
+        if question.get("options") else ""
+    )
+    text = _chat(
+        [
+            {
+                "role": "user",
+                "content": CHALLENGE_PROMPT.format(
+                    grade=config.GRADE_LEVEL,
+                    question=question["question"],
+                    passage_block=passage_block,
+                    options_block=options_block,
+                    expected=question["answer"],
+                    student=student_answer,
+                    feedback=original_feedback or "(none recorded)",
+                ),
+            }
+        ],
+        temperature=0.2,
+        max_tokens=3000,
+    )
+    result = _extract_json(text)
+    return bool(result.get("student_is_right")), result.get("message", "")
 
 
 def grade_short_answer(question, student_answer):
