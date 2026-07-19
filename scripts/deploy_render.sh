@@ -23,7 +23,8 @@ echo "  owner: $OWNER_ID"
 # Env vars to set on the service — only the ones present in this shell.
 ENVVARS=$(python3 -c '
 import json, os
-keys = ("MINIMAX_API_KEY", "DATABASE_URL", "CORS_ORIGINS", "SYNC_TOKEN")
+keys = ("MINIMAX_API_KEY", "MINIMAX_BASE_URL", "MINIMAX_MODEL",
+        "DATABASE_URL", "CORS_ORIGINS", "SYNC_TOKEN")
 print(json.dumps([{"key": k, "value": os.environ[k]} for k in keys if os.environ.get(k)]))
 ')
 
@@ -34,8 +35,23 @@ d = json.load(sys.stdin)
 print(d[0]["service"]["id"] if d else "")')
 
 if [ -n "$EXISTING_ID" ]; then
-  echo "  found $EXISTING_ID — updating env vars and redeploying."
-  curl -sS "${auth[@]}" -X PUT "$API/services/$EXISTING_ID/env-vars" -d "$ENVVARS" >/dev/null
+  echo "  found $EXISTING_ID — merging env vars and redeploying."
+  # Merge with what's already on the service so a re-run with only some vars
+  # exported never silently deletes the others (e.g. DATABASE_URL).
+  CURRENT=$(curl -sS "${auth[@]}" "$API/services/$EXISTING_ID/env-vars?limit=100")
+  MERGED=$(CURRENT="$CURRENT" ENVVARS="$ENVVARS" python3 -c '
+import json, os
+cur = json.loads(os.environ["CURRENT"])
+merged = {}
+for item in (cur if isinstance(cur, list) else []):
+    ev = item.get("envVar", item)
+    if isinstance(ev, dict) and "key" in ev:
+        merged[ev["key"]] = ev.get("value", "")
+for ev in json.loads(os.environ["ENVVARS"]):
+    merged[ev["key"]] = ev["value"]
+print(json.dumps([{"key": k, "value": v} for k, v in sorted(merged.items())]))
+')
+  curl -sS "${auth[@]}" -X PUT "$API/services/$EXISTING_ID/env-vars" -d "$MERGED" >/dev/null
   curl -sS "${auth[@]}" -X POST "$API/services/$EXISTING_ID/deploys" -d '{}' >/dev/null
   SERVICE_JSON=$(curl -sS "${auth[@]}" "$API/services/$EXISTING_ID")
 else
