@@ -124,8 +124,16 @@ def update_prefs(p, new_prefs):
 
 
 def public_player(p):
-    """Profile + everything the frontend needs pre-computed (level, badges)."""
+    """Profile + everything the frontend needs pre-computed (level, badges,
+    active-session state — bundled here so the home screen renders the right
+    call-to-action in one fetch, with no start/resume button flicker)."""
     p = _normalize(dict(p))
+    quest = active_quest(p)
+    p["active_info"] = (
+        {"active": True, "kind": quest.get("kind", "quest"),
+         "answered": len(quest["results"]), "total": len(quest["questions"])}
+        if quest else {"active": False}
+    )
     num, title, nxt = profile_mod.level_info(p["xp"])
     p["level"] = {
         "num": num,

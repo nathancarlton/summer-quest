@@ -95,8 +95,20 @@
   --shadow: rgba(0, 0, 0, 0.4);
 }
 
+:root {
+  --font: 'Fredoka', system-ui, sans-serif;
+}
+
+:root[data-font='nunito'] {
+  --font: 'Nunito', system-ui, sans-serif;
+}
+
+:root[data-font='inter'] {
+  --font: 'Inter', system-ui, sans-serif;
+}
+
 body {
-  font-family: 'Fredoka', system-ui, sans-serif;
+  font-family: var(--font);
   color: var(--ink);
   background: var(--bg);
   background-attachment: fixed;
@@ -228,6 +240,11 @@ body {
   gap: 10px;
 }
 
+.cta-wait {
+  opacity: 0.5;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
 /* ─── Player picker ─── */
 .player-row {
   display: flex;
@@ -264,6 +281,28 @@ body {
 .theme-dot-on {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* ─── Font picker ─── */
+.font-picker {
+  display: flex;
+  gap: 8px;
+}
+
+.font-btn {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--btn-bg);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.font-btn-on {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
 }
 
 /* ─── AI status dot (parent-facing) ─── */

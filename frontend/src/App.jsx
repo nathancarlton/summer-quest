@@ -22,8 +22,17 @@ export default function App() {
   const [active, setActive] = useState(null) // unfinished session info
   const [error, setError] = useState('')
 
-  const refreshActive = (p) =>
-    api.active(p.id).then(setActive).catch(() => setActive(null))
+  const refreshActive = (p) => {
+    // active_info rides along in the player payload — set synchronously so
+    // the home screen shows the right button on its very first render. The
+    // fetch fallback only covers an older backend without the field.
+    if (p.active_info) {
+      setActive(p.active_info)
+      return
+    }
+    setActive(null)
+    api.active(p.id).then(setActive).catch(() => setActive({ active: false }))
+  }
 
   useEffect(() => {
     const boot = async () => {
@@ -71,6 +80,7 @@ export default function App() {
     const p = await api.createPlayer(name, prefs)
     localStorage.setItem(STORED_ID, p.id)
     setPlayer(p)
+    refreshActive(p)
     setScreen('home')
   }
 

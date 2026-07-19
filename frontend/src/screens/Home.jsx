@@ -1,4 +1,5 @@
 import AiDot from '../AiDot.jsx'
+import FontPicker from '../FontPicker.jsx'
 import ThemePicker from '../ThemePicker.jsx'
 
 // The HUD from ui.py: XP, level, streak, badges, progress to next level.
@@ -40,7 +41,13 @@ export default function Home({ player, active, onStart, onExpedition, onStats, o
         <h2>Welcome back, {player.name}! 👋</h2>
         <Hud player={player} />
         <div className="stack">
-          {hasActive ? (
+          {active === null ? (
+            // Session state unknown (older backend) — hold the CTA slot
+            // rather than flashing the wrong button.
+            <button className="btn primary big cta-wait" disabled>
+              …
+            </button>
+          ) : hasActive ? (
             // An unfinished session must be finished — no fresh starts.
             <button className="btn primary big" onClick={onStart}>
               ▶️ Finish your {active.kind === 'expedition' ? 'expedition' : 'quest'}!{' '}
@@ -71,6 +78,7 @@ export default function Home({ player, active, onStart, onExpedition, onStats, o
       </button>
       <div className="foot-row">
         <ThemePicker />
+        <FontPicker />
         <AiDot />
       </div>
     </div>
