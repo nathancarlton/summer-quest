@@ -73,9 +73,20 @@ def list_players():
 
 @app.post("/api/v1/players", status_code=201)
 def create_player(body: PlayerCreate):
-    prefs = {k: str(v)[:60] for k, v in body.prefs.items() if k in ("animal", "food", "theme")}
-    p = engine.create_player(body.name.strip(), prefs)
+    p = engine.create_player(body.name.strip(), engine.clean_prefs(body.prefs))
     return engine.public_player(p)
+
+
+class PrefsBody(BaseModel):
+    prefs: dict
+
+
+@app.post("/api/v1/players/{pid}/prefs")
+def update_prefs(pid: str, body: PrefsBody):
+    """Merge new favorites into the profile (badge-bonus questions). Keys are
+    whitelisted server-side so only the impersonal catalog is stored."""
+    p = _player_or_404(pid)
+    return engine.public_player(engine.update_prefs(p, body.prefs))
 
 
 def _player_or_404(pid):

@@ -10,7 +10,8 @@ Comes in two forms that share the same game engine:
 ## Features
 
 - **AI-generated daily quests** — vocabulary, grammar, reading comprehension (with passages), figurative language, writing mechanics, and multi-step math word problems
-- **Adaptive** — tracks per-category accuracy and tells the AI to emphasize weak areas
+- **Adaptive** — tracks per-category accuracy and tells the AI to emphasize weak areas; a challenge level (1–5) rises when a kid scores 90%+ and eases when they score 50% or below, keeping sessions in the productive ~7–8/10 zone
+- **Personalized, privately** — favorites (color, dream destination, instrument, sport, song, weather, animal, food) get woven into questions; each badge earned unlocks a bonus prompt to add or refresh one. The catalog is deliberately impersonal — things, places, weather; never names of people — so profiles don't collect identifying details
 - **AI-graded written answers** — short-answer questions get generous, encouraging feedback
 - **Gamification** — XP, 10 named levels, daily streaks with bonus XP, 9 unlockable badges, and a double-XP **boss battle** at the end of each session
 - **Progress tracking** — local profile + append-only session history, plus a sync stub ready to point at a future API backend

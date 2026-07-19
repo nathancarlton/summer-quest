@@ -37,6 +37,9 @@ def _default(name):
         "offline": {"mastered": [], "review": []},
         # Favorites used to personalize questions (animal, food, theme/hobby).
         "prefs": {},
+        # Adaptive challenge level 1-5; adjust_difficulty moves it after
+        # each session based on the score.
+        "difficulty": 2,
     }
 
 
@@ -48,6 +51,7 @@ def load():
         p.setdefault("sessions_completed", 0)  # forward-compat for older profiles
         p.setdefault("offline", {"mastered": [], "review": []})
         p.setdefault("prefs", {})
+        p.setdefault("difficulty", 2)
         return p
     return None
 
@@ -110,6 +114,24 @@ def record_offline(profile, qid, correct):
             off["review"].remove(qid)
     elif qid not in off["mastered"] and qid not in off["review"]:
         off["review"].append(qid)
+
+
+DIFFICULTY_MIN, DIFFICULTY_MAX = 1, 5
+
+
+def adjust_difficulty(profile, correct, total):
+    """Call after a session. Acing it (>=90%) nudges the challenge up one
+    level; struggling (<=50%) nudges it down. The sweet spot in between —
+    around 7-8 right out of 10 — holds steady. Returns -1, 0, or +1."""
+    d = profile.get("difficulty", 2)
+    pct = correct / total if total else 0
+    delta = 0
+    if pct >= 0.9 and d < DIFFICULTY_MAX:
+        delta = 1
+    elif pct <= 0.5 and d > DIFFICULTY_MIN:
+        delta = -1
+    profile["difficulty"] = d + delta
+    return delta
 
 
 def weak_categories(profile, k=2):

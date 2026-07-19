@@ -555,6 +555,40 @@ textarea:focus {
   color: var(--gold-ink);
 }
 
+.badge-bonus {
+  background: var(--surface);
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.badge-bonus .badge-title {
+  color: var(--accent);
+}
+
+.bonus-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.bonus-done {
+  color: var(--good);
+  font-weight: 600;
+}
+
+.diff-up {
+  color: var(--good);
+  font-weight: 600;
+}
+
+.diff-down {
+  color: var(--warn);
+  font-weight: 600;
+}
+
 .badge-box {
   border: 2px dashed var(--gold-border);
   border-radius: 14px;

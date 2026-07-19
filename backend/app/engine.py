@@ -87,6 +87,30 @@ def _normalize(p):
     p.setdefault("sessions_completed", 0)
     p.setdefault("offline", {"mastered": [], "review": []})
     p.setdefault("prefs", {})
+    p.setdefault("difficulty", 2)
+    return p
+
+
+# Favorites are deliberately impersonal — things, places, weather; never
+# people. Keys must match ai._PREF_PHRASES and the web app's badge-bonus
+# question catalog.
+PREF_KEYS = ("animal", "food", "theme", "color", "place", "instrument",
+             "sport", "song", "weather")
+
+
+def clean_prefs(raw):
+    out = {}
+    for k, v in (raw or {}).items():
+        if k in PREF_KEYS and isinstance(v, (str, int, float)):
+            v = str(v).strip()[:60]
+            if v:
+                out[k] = v
+    return out
+
+
+def update_prefs(p, new_prefs):
+    p.setdefault("prefs", {}).update(clean_prefs(new_prefs))
+    save_player(p)
     return p
 
 
@@ -264,6 +288,7 @@ def refill_pool_in_background(p):
     la_count, math_count = _build_mix(config.QUESTIONS_PER_SESSION)
     weak = profile_mod.weak_categories(p)
     prefs = p.get("prefs") or {}
+    difficulty = p.get("difficulty", 2)
 
     def _worker():
         try:
@@ -272,7 +297,8 @@ def refill_pool_in_background(p):
                 theme = random.choice(config.THEMES)
                 try:
                     qs = ai.generate_questions(
-                        la_count, math_count, weak, prefs=prefs, theme=theme
+                        la_count, math_count, weak, prefs=prefs, theme=theme,
+                        difficulty=difficulty,
                     )
                     _note_ai(True, "question generation succeeded")
                 except Exception as e:
@@ -282,7 +308,8 @@ def refill_pool_in_background(p):
                 if len(qs) < threshold:
                     return  # weak result; don't spin uselessly
                 sessions = storage.get_json(_pool_key(pid), [])
-                sessions.append({"theme": theme, "questions": qs})
+                sessions.append({"theme": theme, "difficulty": difficulty,
+                                 "questions": qs})
                 storage.set_json(_pool_key(pid), sessions)
         finally:
             with _refill_lock:
@@ -401,6 +428,7 @@ def complete_quest(quest):
     total = len(quest["questions"])
     p["sessions_completed"] = p.get("sessions_completed", 0) + 1
     new_badges = profile_mod.check_badges(p, quest["correct_count"] == total)
+    difficulty_delta = profile_mod.adjust_difficulty(p, quest["correct_count"], total)
     save_player(p)
 
     summary = {
@@ -427,6 +455,8 @@ def complete_quest(quest):
             {"key": b, "label": profile_mod.BADGES[b][0], "desc": profile_mod.BADGES[b][1]}
             for b in new_badges
         ],
+        "difficulty": p["difficulty"],
+        "difficulty_delta": difficulty_delta,
         "player": public_player(p),
     }
 

@@ -20,6 +20,9 @@ export default function Stats({ player, onBack }) {
       <h1 className="logo">📊 My Stats</h1>
       <div className="card">
         <Hud player={player} />
+        <p className="muted">
+          Challenge level: {'⭐'.repeat(player.difficulty || 2)} ({player.difficulty || 2}/5)
+        </p>
         {rows.length ? (
           <table className="stats-table">
             <thead>

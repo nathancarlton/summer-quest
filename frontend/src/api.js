@@ -37,4 +37,6 @@ export const api = {
       body: JSON.stringify({ answer }),
     }),
   complete: (questId) => req(`/api/v1/quests/${questId}/complete`, { method: 'POST' }),
+  updatePrefs: (id, prefs) =>
+    req(`/api/v1/players/${id}/prefs`, { method: 'POST', body: JSON.stringify({ prefs }) }),
 }

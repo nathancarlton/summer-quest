@@ -153,35 +153,71 @@ def _gen_batch(prompt):
     return [_sanitize(q) for q in data if isinstance(q, dict)]
 
 
+# How each stored favorite reads inside the prompt. Keys line up with the
+# badge-bonus questions in the web app — deliberately impersonal (things,
+# places, weather — never people).
+_PREF_PHRASES = {
+    "animal": "their favorite animal, a {v}",
+    "food": "their favorite food, {v}",
+    "theme": "their favorite adventure world, {v}",
+    "color": "their favorite color, {v}",
+    "place": "a place they dream of visiting, {v}",
+    "instrument": "an instrument they like, the {v}",
+    "sport": "a sport or activity they enjoy, {v}",
+    "song": 'a song they love, "{v}"',
+    "weather": "their favorite kind of weather, {v}",
+}
+
+
 def _favorites_line(prefs):
-    """A sentence telling the model which favorites to work in (or empty)."""
+    """A sentence telling the model which favorites to work in (or empty).
+
+    Rotates through at most 3 per generation so a kid with many favorites
+    gets different combinations threaded into different sessions."""
     prefs = prefs or {}
-    bits = []
-    if prefs.get("animal"):
-        bits.append(f"a {prefs['animal']}")
-    if prefs.get("food"):
-        bits.append(prefs["food"])
-    if prefs.get("theme"):
-        bits.append(prefs["theme"])
+    bits = [_PREF_PHRASES[k].format(v=v) for k, v in prefs.items()
+            if v and k in _PREF_PHRASES]
     if not bits:
         return ""
-    return f"Delight the student by working in their favorites: {', '.join(bits)}."
+    if len(bits) > 3:
+        bits = random.sample(bits, 3)
+    return f"Delight the student by working in their favorites: {'; '.join(bits)}."
 
 
-def generate_questions(la_count, math_count, weak_categories, prefs=None, theme=None):
+# Adaptive challenge: the level (profile['difficulty']) picks the note that
+# steers question difficulty in both generation prompts.
+DIFFICULTY_NOTES = {
+    1: "Difficulty: gentle and confidence-building, around mid-5th-grade level. "
+       "Simple vocabulary, single-step problems, friendly distractors.",
+    2: "Difficulty: standard for a student entering 6th grade.",
+    3: "Difficulty: slightly advanced, end-of-6th-grade level — include some "
+       "multi-step thinking.",
+    4: "Difficulty: challenging, 7th-grade level — multi-step reasoning and "
+       "subtler answer choices.",
+    5: "Difficulty: very challenging, 8th-grade level — every question should "
+       "require real reasoning, with distractors that catch common mistakes.",
+}
+
+
+def generate_questions(la_count, math_count, weak_categories, prefs=None, theme=None,
+                       difficulty=None):
     """Generate a full question set via several small concurrent requests.
 
     Batching keeps each call short so the reasoning model's think-time runs
     in parallel; a single 10-question call takes ~2.5 min, batched ~1 min.
-    One shared `theme` threads through every batch for a coherent world.
+    One shared `theme` threads through every batch for a coherent world;
+    `difficulty` (1-5) steers how hard the questions get.
     Partial results are fine — the caller validates and falls back if short.
     """
     weak = ", ".join(weak_categories) if weak_categories else "none identified yet"
     theme = theme or random.choice(config.THEMES)
     favorites = _favorites_line(prefs)
+    level_note = "\n" + DIFFICULTY_NOTES.get(difficulty or 2, DIFFICULTY_NOTES[2])
     prompts = [GEN_LA_PROMPT.format(n=c, weak=weak, theme=theme, favorites=favorites)
+               + level_note
                for c in _chunks(la_count, BATCH_SIZE)]
     prompts += [GEN_MATH_PROMPT.format(n=c, theme=theme, favorites=favorites)
+                + level_note
                 for c in _chunks(math_count, BATCH_SIZE)]
 
     questions = []

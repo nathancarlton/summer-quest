@@ -17,7 +17,8 @@ def prefetch(p):
     """Start (or top up) the background pool so future quests load instantly."""
     la_count, math_count = _build_mix(config.QUESTIONS_PER_SESSION)
     pool.refill_in_background(
-        la_count, math_count, profile_mod.weak_categories(p), p.get("prefs") or {}
+        la_count, math_count, profile_mod.weak_categories(p),
+        p.get("prefs") or {}, difficulty=p.get("difficulty", 2),
     )
 
 
@@ -136,7 +137,12 @@ def run(p):
 
     p["sessions_completed"] = p.get("sessions_completed", 0) + 1
     new_badges = profile_mod.check_badges(p, correct_count == len(questions))
+    difficulty_delta = profile_mod.adjust_difficulty(p, correct_count, len(questions))
     profile_mod.save(p)
+    if difficulty_delta > 0:
+        ui.console.print("[magenta]⬆ You're crushing it — tomorrow's questions level up![/]")
+    elif difficulty_delta < 0:
+        ui.console.print("[cyan]⬇ We'll ease things up a little tomorrow.[/]")
 
     summary = {
         "player_id": p["id"],

@@ -21,4 +21,17 @@ export const ENCOURAGE = [
 
 export const WORLDS = ['space', 'ocean', 'jungle', 'sports', 'mystery', 'video games']
 
+// Badge-bonus favorite questions — deliberately impersonal (things, places,
+// weather; never people), so profiles don't collect identifying details.
+export const PREF_QUESTIONS = [
+  { key: 'color', q: "What's your favorite color?", ph: 'e.g. teal' },
+  { key: 'place', q: "What's a place you'd love to visit someday?", ph: 'e.g. the Grand Canyon' },
+  { key: 'instrument', q: "What's a musical instrument you think is cool?", ph: 'e.g. drums' },
+  { key: 'sport', q: "What's a sport or activity you enjoy?", ph: 'e.g. rock climbing' },
+  { key: 'song', q: "What's a song you love right now?", ph: 'e.g. Bohemian Rhapsody' },
+  { key: 'weather', q: "What's your favorite kind of weather?", ph: 'e.g. thunderstorms' },
+  { key: 'animal', q: "What's your favorite animal these days?", ph: 'e.g. otter' },
+  { key: 'food', q: "What's a food you love these days?", ph: 'e.g. tacos' },
+]
+
 export const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]

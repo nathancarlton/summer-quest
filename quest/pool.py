@@ -63,7 +63,7 @@ def _add_session(theme, questions):
         _write(sessions)
 
 
-def _fill(la_count, math_count, weak, prefs, target):
+def _fill(la_count, math_count, weak, prefs, difficulty, target):
     """Generate themed sessions until the pool holds `target` of them.
 
     Blocking — run via refill_in_background. Each generated session is written
@@ -74,7 +74,8 @@ def _fill(la_count, math_count, weak, prefs, target):
         theme = random.choice(config.THEMES)
         try:
             qs = ai.generate_questions(la_count, math_count, weak,
-                                       prefs=prefs, theme=theme)
+                                       prefs=prefs, theme=theme,
+                                       difficulty=difficulty)
         except Exception:
             return  # network/API problem — stop and try again next run
         qs = [q for q in qs if bank.valid_question(q)]
@@ -83,7 +84,8 @@ def _fill(la_count, math_count, weak, prefs, target):
         _add_session(theme, qs)
 
 
-def refill_in_background(la_count, math_count, weak, prefs, target=TARGET_SESSIONS):
+def refill_in_background(la_count, math_count, weak, prefs, difficulty=None,
+                         target=TARGET_SESSIONS):
     """Kick off a daemon thread to top the pool up. No-op without an API key,
     if a refill is already running, or if the pool is already full."""
     if not config.MINIMAX_API_KEY:
@@ -96,7 +98,7 @@ def refill_in_background(la_count, math_count, weak, prefs, target=TARGET_SESSIO
 
     def _worker():
         try:
-            _fill(la_count, math_count, weak, prefs, target)
+            _fill(la_count, math_count, weak, prefs, difficulty, target)
         finally:
             _refilling.clear()
 
