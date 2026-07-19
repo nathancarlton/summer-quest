@@ -92,6 +92,14 @@ a strong math student: ratios, rates, percentages, pre-algebra, multi-step logic
 Set the problems in ONE fun world: {theme}. {favorites} Keep the numbers real \
 and the scenarios vivid.
 
+CRITICAL — before writing each JSON object, SOLVE the problem yourself completely:
+- The correct result must be a whole number whenever the story implies one \
+(you can't have half a gem or 7.5 people).
+- The correct result MUST be one of the four options, and "answer" must be its letter.
+- The explanation must be one clean worked solution. If you notice any \
+inconsistency while solving, FIX the problem and re-solve — never mention the \
+inconsistency or adjust the story to excuse it.
+
 Each must be type "mc" with exactly 4 options. Each JSON object:
 {{"category": "math_challenge", "type": "mc", "question": "...", \
 "passage": null, "options": ["A...","B...","C...","D..."], \
@@ -164,6 +172,22 @@ def _sanitize(q):
     return q
 
 
+# A model that catches its own mistake mid-explanation ("wait, that's not an
+# option! ...the dragon secretly added some!") has produced a broken question.
+# These tells in the EXPLANATION are grounds for automatic rejection.
+_CONFUSED_RE = re.compile(
+    r"not an option|let me (check|reconsider|recalculate|re-?solve|try)|"
+    r"check(ing)? again|can'?t be right|doesn'?t (work|add up|match)|"
+    r"i made (an error|a mistake)|hmm|secretly (add|remov|hid)|"
+    r"wait[,—: ]|that'?s (odd|strange|wrong)",
+    re.IGNORECASE,
+)
+
+
+def _looks_confused(q):
+    return bool(_CONFUSED_RE.search(str(q.get("explanation") or "")))
+
+
 def _gen_batch(prompt):
     text = _chat(
         [
@@ -176,7 +200,8 @@ def _gen_batch(prompt):
         data = [data]
     if not isinstance(data, list):
         raise ValueError("AI returned unexpected shape")
-    return [_sanitize(q) for q in data if isinstance(q, dict)]
+    return [_sanitize(q) for q in data
+            if isinstance(q, dict) and not _looks_confused(q)]
 
 
 # How each stored favorite reads inside the prompt. Keys line up with the
@@ -251,7 +276,52 @@ def generate_questions(la_count, math_count, weak_categories, prefs=None, theme=
         questions.extend(result or [])
     if not questions:
         raise ValueError("AI returned no questions")
-    return questions
+    return _verify_math(questions)
+
+
+MATH_VERIFY_PROMPT = """You are auditing the answer keys of multiple-choice math \
+problems. For EACH problem: solve it yourself from scratch, carefully, then judge \
+whether the official answer letter is correct.
+A problem is BAD if the true result is not among the options, if the official \
+letter points at the wrong option, or if the story forces impossible values \
+(like a fraction of a physical object).
+
+Problems (JSON): {problems}
+
+Return ONLY a JSON array, one entry per problem, same order:
+[{{"i": 0, "your_answer": "B", "official_is_correct": true}}, ...]"""
+
+
+def _verify_math(questions):
+    """Adversarial answer-key check for math questions. An independent pass
+    re-solves each one; questions whose key fails the audit are dropped.
+    Runs only in background brewing, so the extra call costs no kid-time.
+    If the audit call itself fails, questions pass through unverified —
+    availability beats perfection."""
+    idxs = [i for i, q in enumerate(questions)
+            if q.get("category") == "math_challenge" and q.get("options")]
+    if not idxs:
+        return questions
+    payload = [
+        {"i": n, "question": questions[i]["question"],
+         "options": questions[i]["options"],
+         "official_answer": str(questions[i]["answer"])}
+        for n, i in enumerate(idxs)
+    ]
+    try:
+        text = _chat(
+            [{"role": "user",
+              "content": MATH_VERIFY_PROMPT.format(problems=json.dumps(payload))}],
+            temperature=0.0,
+            max_tokens=6000,
+        )
+        verdicts = _extract_json(text)
+        bad = {idxs[v["i"]] for v in verdicts
+               if isinstance(v, dict) and not v.get("official_is_correct", True)
+               and 0 <= v.get("i", -1) < len(idxs)}
+    except Exception:
+        return questions
+    return [q for i, q in enumerate(questions) if i not in bad]
 
 
 def _safe_batch(prompt):
