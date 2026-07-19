@@ -1,0 +1,16 @@
+# Render blueprint: lets Render auto-configure the backend from the repo.
+# (Render doesn't read Procfile — that stays for Koyeb/Zeabur/Heroku-style hosts.)
+services:
+  - type: web
+    name: summer-quest-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MINIMAX_API_KEY
+        sync: false # set in the Render dashboard
+      - key: DATABASE_URL
+        sync: false # Supabase session-pooler URI
+      - key: CORS_ORIGINS
+        sync: false # your Vercel URL once you have it

@@ -5,7 +5,7 @@ A daily 15–30 minute learning game for incoming 6th graders, aligned to Minnes
 Comes in two forms that share the same game engine:
 
 - **CLI** (`quest/`) — the original terminal game, one profile per machine
-- **Web** — a React frontend (`frontend/`, deploy to **Vercel**) talking to a FastAPI backend (`backend/`, deploy to **Koyeb** or **Zeabur**), with multiple player profiles per device and the MiniMax key kept server-side
+- **Web** — a React frontend (`frontend/`, deploy to **Vercel**) talking to a FastAPI backend (`backend/`, deploy to **Render**, with **Supabase** Postgres for storage), with multiple player profiles per device and the MiniMax key kept server-side
 
 ## Features
 
@@ -74,7 +74,8 @@ backend/app/      # FastAPI backend (imports quest/ directly — no duplication)
   storage.py      # SQLite locally, Postgres via DATABASE_URL in production
 frontend/         # React (Vite) app for Vercel
   src/screens/    # PickPlayer, Onboarding, Home (HUD), Quest, Summary, Stats
-Procfile          # boots the backend on Koyeb/Zeabur: uvicorn ... --port $PORT
+render.yaml       # Render service definition (build + start commands, env vars)
+Procfile          # same boot command for Heroku-style hosts (Koyeb/Zeabur)
 data/             # gitignored: CLI profile + history, local SQLite db
 ```
 
@@ -137,24 +138,45 @@ The frontend reads `VITE_API_URL` (defaults to `http://localhost:8000`).
 
 Answers never reach the browser: grading happens on the server, so a curious kid can't peek in DevTools. Question generation works exactly like the CLI — instant serve from a per-player pre-generated pool (or the offline bank on first play), while a background thread brews the next themed session.
 
-### Deploy the backend — Koyeb (or Zeabur)
+### Set up the database — Supabase
 
-1. Push this repo to GitHub.
-2. **Koyeb:** Create Service → GitHub → this repo. The buildpack auto-detects Python via the root `Procfile` and `requirements.txt` — no Dockerfile needed. Pick the free instance (US-East for fastest wake-ups).
-   **Zeabur:** New Project → Deploy from GitHub → this repo; its Python buildpack also honors the `Procfile`.
-3. Set environment variables on the service:
+Free web hosts have ephemeral disks (wiped on every deploy), so the kids' XP
+must live in Postgres. Without `DATABASE_URL` the backend falls back to SQLite —
+fine for local dev only.
+
+1. Create a project at [supabase.com](https://supabase.com) (free tier).
+2. Project → **Connect** → copy the **Session pooler** URI (not "Direct
+   connection" — direct is IPv6-only on the free plan and Render can't reach it):
+   `postgresql://postgres.xxxx:[password]@aws-0-us-east-1.pooler.supabase.com:5432/postgres`
+3. Replace `[password]` with your database password. This is your `DATABASE_URL`.
+
+Note: free Supabase projects pause after ~1 week of inactivity. Daily play keeps
+it awake; after a long vacation, un-pause it in the Supabase dashboard (Restore).
+
+### Deploy the backend — Render
+
+1. [render.com](https://render.com) → New → **Web Service** → connect this repo,
+   branch `main`. The root `render.yaml` supplies the build and start commands
+   (or enter them manually: build `pip install -r requirements.txt`, start
+   `uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT`). Pick the free
+   instance type.
+2. Set environment variables on the service:
    - `MINIMAX_API_KEY` — so generation/grading runs server-side
-   - `DATABASE_URL` — **important:** free instances have ephemeral disks (wiped on redeploy and scale-to-zero), so attach the platform's free Postgres (or a free [Neon](https://neon.tech) db) or the kids' XP resets. Without it the backend falls back to SQLite — fine for local dev only.
+   - `DATABASE_URL` — the Supabase pooler URI from above
    - `CORS_ORIGINS` — set to your Vercel URL once you have it, e.g. `https://summer-quest.vercel.app` (unset = allow all, handy while testing)
    - `SYNC_TOKEN` — optional, only if the CLIs will sync to this backend
-4. Note the public URL, e.g. `https://summer-quest-yourname.koyeb.app` — check `GET /` returns `{"status": "healthy"}`.
+3. Note the public URL, e.g. `https://summer-quest-api.onrender.com` — check `GET /` returns `{"status": "healthy"}`.
+
+(Don't use Render's own free Postgres for this — it expires and is deleted after
+30 days. The `Procfile` also still works on Heroku-style hosts like Zeabur if
+you ever switch.)
 
 ### Deploy the frontend — Vercel
 
 1. Vercel → Add New Project → import this repo.
 2. Set **Root Directory** to `frontend` (Vite is auto-detected; build command `npm run build`, output `dist`).
 3. Add env var `VITE_API_URL` = your backend URL from above (no trailing slash).
-4. Deploy, then go back to Koyeb/Zeabur and set `CORS_ORIGINS` to the Vercel URL.
+4. Deploy, then go back to Render and set `CORS_ORIGINS` to the Vercel URL.
 
 Every `git push` now rebuilds both halves automatically.
 
@@ -164,7 +186,7 @@ Set in each machine's `.env`: `SYNC_URL=https://your-backend-url` and a matching
 
 ### Free-tier notes
 
-- Free backends **sleep** when idle; the first request of the day takes ~10–30s to wake. The frontend shows its "summoning" spinner during this — FastAPI itself boots in milliseconds, so the platform wake-up dominates.
+- Free backends **sleep** when idle (Render spins down after ~15 min); the first request of the day takes ~10–30s to wake. The frontend shows its "summoning" spinner during this — FastAPI itself boots in milliseconds, so the platform wake-up dominates.
 - The background question-brewing thread only runs while the instance is awake (i.e., while someone is playing). If a freshly woken instance has an empty pool, the quest starts instantly from the offline bank and the AI session is ready next time — same graceful degradation as the CLI.
 
 ## Notes
