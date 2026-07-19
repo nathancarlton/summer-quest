@@ -13,3 +13,4 @@ frontend/dist/
 frontend/.env
 frontend/.env.local
 .vercel/
+.env.local
