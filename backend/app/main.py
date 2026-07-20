@@ -1,4 +1,4 @@
-"""Summer Quest API — FastAPI app for Koyeb/Zeabur.
+"""Summer Quest API — FastAPI app for Render (or any Heroku-style host).
 
 Run locally:   uvicorn backend.app.main:app --reload
 In production: the root Procfile boots this on the platform's $PORT.
@@ -7,18 +7,27 @@ Env vars (all optional):
   MINIMAX_API_KEY  server-side question generation + short-answer grading
   DATABASE_URL     Postgres for durable storage (else SQLite in data/)
   CORS_ORIGINS     comma-separated allowed origins (else "*")
-  SYNC_TOKEN       bearer token required on the CLI sync endpoint
+  SYNC_TOKEN       bearer token for CLI sync, reports, and password resets
+
+Auth model: players set a secret password (+ a hint only they understand).
+Logging in issues an opaque bearer token sent as X-Player-Token; every
+player-scoped endpoint requires it once the player has a secret. Players
+WITHOUT a secret yet (brand-new via CLI import, or pre-auth profiles) are
+accessible without a token — the web app forces secret creation at login,
+which closes that door. Rate limits protect password guessing and the
+endpoints that spend MiniMax credits.
 """
 import os
 from typing import Optional
 
-from fastapi import Body, FastAPI, Header, HTTPException
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from quest import config
 
-from . import engine
+from . import engine, security
 
 app = FastAPI(title="Summer Quest API", version="1.0.0")
 
@@ -33,20 +42,54 @@ app.add_middleware(
 )
 
 
-class PlayerCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=40)
-    prefs: dict = Field(default_factory=dict)
+@app.middleware("http")
+async def global_rate_limit(request: Request, call_next):
+    if request.method != "OPTIONS":  # never throttle CORS preflights
+        try:
+            security.limiter.check(
+                f"global:{security.client_ip(request)}", 240, 60
+            )
+        except HTTPException as e:
+            return JSONResponse(status_code=e.status_code,
+                                content={"detail": e.detail})
+    return await call_next(request)
 
 
-class QuestStart(BaseModel):
-    # The kid's local calendar date, so streaks follow their clock, not UTC.
-    local_date: Optional[str] = None
+# ─── Auth helpers ────────────────────────────────────────────────────────────
+
+def _player_or_404(pid):
+    p = engine.get_player(pid)
+    if p is None:
+        raise HTTPException(404, "player not found")
+    return p
 
 
-class AnswerBody(BaseModel):
-    answer: str = Field(default="", max_length=2000)
-    timed_out: bool = False
+def _authed_player(pid, token):
+    """Load the player, enforcing the token once they have a secret set.
+    Secret-less players (CLI imports, pre-auth profiles) pass through — the
+    web app forces them to create a secret at login."""
+    p = _player_or_404(pid)
+    if p.get("secret_hash"):
+        tp = engine.player_for_token(token)
+        if not tp or tp["id"] != pid:
+            raise HTTPException(401, "login required")
+    return p
 
+
+def _authed_quest(qid, token):
+    quest = engine.get_quest(qid)
+    if quest is None:
+        raise HTTPException(404, "quest not found (already completed?)")
+    _authed_player(quest["player_id"], token)
+    return quest
+
+
+def _any_valid_token(token):
+    if engine.player_for_token(token) is None:
+        raise HTTPException(401, "login required")
+
+
+# ─── Health + AI status ──────────────────────────────────────────────────────
 
 @app.get("/")
 def health():
@@ -61,28 +104,119 @@ def health():
 
 
 @app.get("/api/v1/ai/status")
-def ai_status(probe: bool = False):
+def ai_status(probe: bool = False, request: Request = None,
+              x_player_token: str = Header(default="")):
     """Is MiniMax reachable with the configured key? Feeds the web app's
-    status dot; ?probe=true fires a real tiny chat call to check right now."""
+    status dot. ?probe=true fires a real chat call, so it needs a login and
+    is rate-limited — otherwise strangers could spend MiniMax credits."""
+    if probe:
+        _any_valid_token(x_player_token)
+        security.limiter.check(
+            f"probe:{security.client_ip(request)}", 6, 3600
+        )
     return engine.ai_status(probe)
 
 
-# ─── Players ─────────────────────────────────────────────────────────────────
+# ─── Players + login ─────────────────────────────────────────────────────────
 
 @app.get("/api/v1/players")
 def list_players():
-    """Roster for the device's 'who's playing?' picker — names only, no stats
-    leak beyond what the home screen shows anyway."""
+    """Roster for the login screen: names + whether a secret exists. No
+    stats — this endpoint is pre-auth by necessity."""
     return [
-        {"id": p["id"], "name": p["name"], "xp": p["xp"], "streak": p["streak"]}
+        {"id": p["id"], "name": p["name"],
+         "has_secret": bool(p.get("secret_hash"))}
         for p in engine.list_players()
     ]
 
 
-@app.post("/api/v1/players", status_code=201)
+class PlayerCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    prefs: dict = Field(default_factory=dict)
+    secret: str = Field(min_length=4, max_length=64)
+    hint: str = Field(min_length=3, max_length=100)
+
+
+@app.post("/api/v1/players", status_code=201,
+          dependencies=[Depends(security.rate_limit("create", 5, 3600))])
 def create_player(body: PlayerCreate):
+    """Brand-new players choose their secret password + hint up front."""
     p = engine.create_player(body.name.strip(), engine.clean_prefs(body.prefs))
-    return engine.public_player(p)
+    engine.set_secret(p, body.secret, body.hint)
+    return {"token": engine.issue_token(p), "player": engine.public_player(p)}
+
+
+class LoginBody(BaseModel):
+    secret: str = Field(min_length=1, max_length=64)
+
+
+@app.post("/api/v1/players/{pid}/login")
+def login(pid: str, body: LoginBody, request: Request):
+    # Tight per-player+IP limit: 5 guesses a minute stops brute force cold.
+    security.limiter.check(
+        f"login:{security.client_ip(request)}:{pid}", 5, 60
+    )
+    p = _player_or_404(pid)
+    if not p.get("secret_hash"):
+        raise HTTPException(409, "no secret set yet — create one first")
+    if not security.verify_secret(body.secret, p["secret_hash"]):
+        raise HTTPException(401, "wrong secret password")
+    return {"token": engine.issue_token(p), "player": engine.public_player(p)}
+
+
+@app.get("/api/v1/players/{pid}/hint")
+def get_hint(pid: str,
+             _=Depends(security.rate_limit("hint", 20, 3600))):
+    """The hint is shown to help its owner remember — semi-public by design,
+    which is why the create-secret flow insists on hints only the kid can
+    interpret."""
+    p = _player_or_404(pid)
+    return {"hint": p.get("secret_hint", "")}
+
+
+class SecretBody(BaseModel):
+    secret: str = Field(min_length=4, max_length=64)
+    hint: str = Field(min_length=3, max_length=100)
+
+
+@app.post("/api/v1/players/{pid}/secret",
+          dependencies=[Depends(security.rate_limit("setsecret", 10, 3600))])
+def set_secret(pid: str, body: SecretBody,
+               x_player_token: str = Header(default="")):
+    """First-time creation for players without a secret (CLI imports,
+    pre-auth profiles); changing an existing secret requires being logged in."""
+    p = _player_or_404(pid)
+    if p.get("secret_hash"):
+        tp = engine.player_for_token(x_player_token)
+        if not tp or tp["id"] != pid:
+            raise HTTPException(401, "login required to change your secret")
+    engine.set_secret(p, body.secret, body.hint)
+    return {"token": engine.issue_token(p), "player": engine.public_player(p)}
+
+
+@app.post("/api/v1/players/{pid}/lockout",
+          dependencies=[Depends(security.rate_limit("lockout", 3, 3600))])
+def lockout(pid: str):
+    """'I forgot my secret password' — notifies the game developers via the
+    reports queue so a grown-up can reset it."""
+    p = _player_or_404(pid)
+    engine.file_simple_report(
+        p, "locked_out",
+        "This learner can't log in and asked for a password reset. "
+        f"Reset with: POST /api/v1/players/{p['id']}/secret/reset "
+        "(Bearer SYNC_TOKEN when set).",
+    )
+    return {"ok": True,
+            "message": "The game developers have been notified — ask your grown-up!"}
+
+
+@app.post("/api/v1/players/{pid}/secret/reset")
+def reset_secret(pid: str, authorization: str = Header(default=""), token: str = ""):
+    """Parent-side reset: clears the secret (and all tokens) so the kid
+    creates a new one at next login. Gated by SYNC_TOKEN when set."""
+    _require_reports_auth(authorization, token)
+    engine.clear_secret(_player_or_404(pid))
+    return {"ok": True}
 
 
 class PrefsBody(BaseModel):
@@ -90,23 +224,17 @@ class PrefsBody(BaseModel):
 
 
 @app.post("/api/v1/players/{pid}/prefs")
-def update_prefs(pid: str, body: PrefsBody):
+def update_prefs(pid: str, body: PrefsBody,
+                 x_player_token: str = Header(default="")):
     """Merge new favorites into the profile (badge-bonus questions). Keys are
     whitelisted server-side so only the impersonal catalog is stored."""
-    p = _player_or_404(pid)
+    p = _authed_player(pid, x_player_token)
     return engine.public_player(engine.update_prefs(p, body.prefs))
 
 
-def _player_or_404(pid):
-    p = engine.get_player(pid)
-    if p is None:
-        raise HTTPException(404, "player not found")
-    return p
-
-
 @app.get("/api/v1/players/{pid}")
-def get_player(pid: str):
-    p = _player_or_404(pid)
+def get_player(pid: str, x_player_token: str = Header(default="")):
+    p = _authed_player(pid, x_player_token)
     # Opening the app is the earliest signal a quest is coming — start brewing
     # AI questions now so even the FIRST quest of the day can be fresh.
     engine.refill_pool_in_background(p)
@@ -114,21 +242,22 @@ def get_player(pid: str):
 
 
 @app.get("/api/v1/leaderboard")
-def leaderboard():
+def leaderboard(x_player_token: str = Header(default="")):
+    _any_valid_token(x_player_token)
     return engine.leaderboard()
 
 
 # Cross-device read per the README's original contract.
 @app.get("/api/v1/profile/{pid}")
-def get_profile(pid: str):
-    return engine.public_player(_player_or_404(pid))
+def get_profile(pid: str, x_player_token: str = Header(default="")):
+    return engine.public_player(_authed_player(pid, x_player_token))
 
 
 @app.get("/api/v1/players/{pid}/active")
-def get_active(pid: str):
+def get_active(pid: str, x_player_token: str = Header(default="")):
     """Is there an unfinished session? Powers the home screen's forced
     'Finish your quest!' button — there's no fresh-start path around it."""
-    p = _player_or_404(pid)
+    p = _authed_player(pid, x_player_token)
     quest = engine.active_quest(p)
     if not quest:
         return {"active": False}
@@ -141,16 +270,23 @@ def get_active(pid: str):
 
 
 @app.get("/api/v1/players/{pid}/history")
-def get_history(pid: str):
-    _player_or_404(pid)
+def get_history(pid: str, x_player_token: str = Header(default="")):
+    _authed_player(pid, x_player_token)
     return engine.get_history(pid)
 
 
 # ─── The quest lifecycle ─────────────────────────────────────────────────────
 
-@app.post("/api/v1/players/{pid}/quest")
-def start_quest(pid: str, body: QuestStart = Body(default=QuestStart())):
-    p = _player_or_404(pid)
+class QuestStart(BaseModel):
+    # The kid's local calendar date, so streaks follow their clock, not UTC.
+    local_date: Optional[str] = None
+
+
+@app.post("/api/v1/players/{pid}/quest",
+          dependencies=[Depends(security.rate_limit("start", 30, 3600))])
+def start_quest(pid: str, body: QuestStart = Body(default=QuestStart()),
+                x_player_token: str = Header(default="")):
+    p = _authed_player(pid, x_player_token)
     return engine.start_quest(p, body.local_date)
 
 
@@ -167,25 +303,27 @@ class ExpeditionStart(BaseModel):
     topic: Optional[str] = None  # None = surprise me
 
 
-@app.post("/api/v1/players/{pid}/expedition")
-def start_expedition(pid: str, body: ExpeditionStart = Body(default=ExpeditionStart())):
-    p = _player_or_404(pid)
+@app.post("/api/v1/players/{pid}/expedition",
+          dependencies=[Depends(security.rate_limit("start", 30, 3600))])
+def start_expedition(pid: str,
+                     body: ExpeditionStart = Body(default=ExpeditionStart()),
+                     x_player_token: str = Header(default="")):
+    p = _authed_player(pid, x_player_token)
     try:
         return engine.start_expedition(p, body.topic)
     except KeyError:
         raise HTTPException(422, "unknown expedition topic")
 
 
-def _quest_or_404(qid):
-    quest = engine.get_quest(qid)
-    if quest is None:
-        raise HTTPException(404, "quest not found (already completed?)")
-    return quest
+class AnswerBody(BaseModel):
+    answer: str = Field(default="", max_length=2000)
+    timed_out: bool = False
 
 
 @app.post("/api/v1/quests/{qid}/answer")
-def answer_question(qid: str, body: AnswerBody):
-    quest = _quest_or_404(qid)
+def answer_question(qid: str, body: AnswerBody,
+                    x_player_token: str = Header(default="")):
+    quest = _authed_quest(qid, x_player_token)
     try:
         return engine.answer_question(quest, body.answer, body.timed_out)
     except IndexError:
@@ -193,8 +331,8 @@ def answer_question(qid: str, body: AnswerBody):
 
 
 @app.post("/api/v1/quests/{qid}/complete")
-def complete_quest(qid: str):
-    quest = _quest_or_404(qid)
+def complete_quest(qid: str, x_player_token: str = Header(default="")):
+    quest = _authed_quest(qid, x_player_token)
     try:
         return engine.complete_quest(quest)
     except ValueError as e:
@@ -205,11 +343,13 @@ class ChallengeBody(BaseModel):
     index: int = Field(ge=0, le=50)
 
 
-@app.post("/api/v1/quests/{qid}/challenge")
-def challenge_answer(qid: str, body: ChallengeBody):
+@app.post("/api/v1/quests/{qid}/challenge",
+          dependencies=[Depends(security.rate_limit("challenge", 20, 3600))])
+def challenge_answer(qid: str, body: ChallengeBody,
+                     x_player_token: str = Header(default="")):
     """The learner disputes a ruling — an independent AI appeals judge
     re-evaluates. One challenge per question."""
-    quest = _quest_or_404(qid)
+    quest = _authed_quest(qid, x_player_token)
     try:
         return engine.challenge_answer(quest, body.index)
     except IndexError:
@@ -223,13 +363,17 @@ class ReportBody(BaseModel):
     note: str = Field(default="", max_length=300)
 
 
-@app.post("/api/v1/quests/{qid}/report")
-def report_issue(qid: str, body: ReportBody):
-    quest = _quest_or_404(qid)
+@app.post("/api/v1/quests/{qid}/report",
+          dependencies=[Depends(security.rate_limit("report", 20, 3600))])
+def report_issue(qid: str, body: ReportBody,
+                 x_player_token: str = Header(default="")):
+    quest = _authed_quest(qid, x_player_token)
     p = engine.get_player(quest["player_id"]) or {}
     engine.file_report(p, quest, body.index, "manual", body.note)
     return {"ok": True}
 
+
+# ─── Reports (parent view) ───────────────────────────────────────────────────
 
 def _require_reports_auth(authorization: str, token: str):
     """Reports contain question text + kids' answers; if SYNC_TOKEN is set,

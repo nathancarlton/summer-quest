@@ -742,6 +742,14 @@ textarea:focus {
   font-size: 0.85rem;
 }
 
+.hint-box {
+  background: var(--gold-bg);
+  border: 2px solid var(--gold-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
 .bonus-done {
   color: var(--good);
   font-weight: 600;

@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from quest import ai, bank, config, expeditions, profile as profile_mod
 
-from . import storage
+from . import security, storage
 
 POOL_TARGET = 2    # ready-made themed quest sessions to keep queued per player
 EXPOOL_TARGET = 2  # ready-made expeditions queued per player (brewed AFTER quests)
@@ -126,8 +126,12 @@ def update_prefs(p, new_prefs):
 def public_player(p):
     """Profile + everything the frontend needs pre-computed (level, badges,
     active-session state — bundled here so the home screen renders the right
-    call-to-action in one fetch, with no start/resume button flicker)."""
+    call-to-action in one fetch, with no start/resume button flicker).
+    Auth internals are stripped; only a has_secret flag goes out."""
     p = _normalize(dict(p))
+    p["has_secret"] = bool(p.pop("secret_hash", None))
+    p.pop("secret_hint", None)
+    p.pop("auth_gen", None)
     quest = active_quest(p)
     p["active_info"] = (
         {"active": True, "kind": quest.get("kind", "quest"),
@@ -145,6 +149,47 @@ def public_player(p):
         for b in p["badges"]
         if b in profile_mod.BADGES
     ]
+    return p
+
+
+# ─── Secrets + auth tokens ───────────────────────────────────────────────────
+
+def set_secret(p, secret, hint):
+    """Set (or change) a player's secret password + hint, invalidating any
+    previously issued tokens via the auth generation counter."""
+    p["secret_hash"] = security.hash_secret(secret)
+    p["secret_hint"] = str(hint).strip()[:100]
+    p["auth_gen"] = p.get("auth_gen", 0) + 1
+    save_player(p)
+
+
+def clear_secret(p):
+    """Parent reset: the kid re-creates their secret on next login."""
+    p.pop("secret_hash", None)
+    p.pop("secret_hint", None)
+    p["auth_gen"] = p.get("auth_gen", 0) + 1
+    save_player(p)
+
+
+def issue_token(p):
+    token = security.new_token()
+    storage.set_json(security.token_key(token), {
+        "pid": p["id"], "gen": p.get("auth_gen", 0),
+    })
+    return token
+
+
+def player_for_token(token):
+    """Resolve a bearer token to its player, or None. Tokens die when the
+    secret changes or is reset (generation mismatch)."""
+    if not token:
+        return None
+    rec = storage.get_json(security.token_key(token))
+    if not rec:
+        return None
+    p = get_player(rec.get("pid"))
+    if p is None or rec.get("gen") != p.get("auth_gen", 0):
+        return None
     return p
 
 
@@ -424,9 +469,22 @@ def _expool_take(pid, topic=None):
 
 
 def _fill_expeditions(pid):
-    """Blocking; runs inside the refill worker after the quest pool is full."""
+    """Blocking; runs inside the refill worker after the quest pool is full.
+
+    Topic choice matters: a kid who just played Civics from the offline bank
+    wants FRESH Civics next time, so a requested-but-unpooled topic
+    (expedition_wanted) brews first; otherwise prefer topics not already
+    queued so the pool stays varied."""
     while len(storage.get_json(_expool_key(pid), [])) < EXPOOL_TARGET:
-        topic = random.choice(list(expeditions.TOPICS))
+        pooled_topics = {s.get("topic")
+                         for s in storage.get_json(_expool_key(pid), [])}
+        p = get_player(pid) or {}
+        wanted = p.get("expedition_wanted")
+        if wanted in expeditions.TOPICS and wanted not in pooled_topics:
+            topic = wanted
+        else:
+            unpooled = [t for t in expeditions.TOPICS if t not in pooled_topics]
+            topic = random.choice(unpooled or list(expeditions.TOPICS))
         label, emoji, desc = expeditions.TOPICS[topic]
         try:
             qs = ai.generate_expedition(topic, label, desc, n=EXPEDITION_SIZE)
@@ -441,6 +499,10 @@ def _fill_expeditions(pid):
         # verified: generate_expedition already ran the MC audit.
         sessions.append({"topic": topic, "questions": qs, "verified": True})
         storage.set_json(_expool_key(pid), sessions)
+        p = get_player(pid)
+        if p and p.get("expedition_wanted") == topic:  # wish granted
+            p["expedition_wanted"] = None
+            save_player(p)
 
 
 def start_expedition(p, topic=None):
@@ -462,6 +524,9 @@ def start_expedition(p, topic=None):
     if len(qs) < 3:
         topic = topic or random.choice(list(expeditions.TOPICS))
         qs = expeditions.sample(topic, EXPEDITION_SIZE, p["offline"]["mastered"])
+        # Served from the small offline bank — remember the topic so the
+        # brewer makes fresh AI questions for it before anything else.
+        p["expedition_wanted"] = topic
     seen = set()
     unique = []
     for q in qs:
@@ -791,6 +856,19 @@ def file_report(player, quest, index, rtype, note=""):
     storage.set_json(REPORTS_KEY, reports[-MAX_REPORTS:])
 
 
+def file_simple_report(player, rtype, note=""):
+    """Quest-free report — e.g. a locked-out kid asking for a password reset."""
+    reports = storage.get_json(REPORTS_KEY, [])
+    reports.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "type": rtype,
+        "player_name": player.get("name"),
+        "player_id": player.get("id"),
+        "note": str(note)[:300],
+    })
+    storage.set_json(REPORTS_KEY, reports[-MAX_REPORTS:])
+
+
 def get_reports():
     return storage.get_json(REPORTS_KEY, [])
 
@@ -881,11 +959,18 @@ def get_history(pid):
 
 def ingest_cli_progress(profile, session_summary):
     """The sync.py contract: the CLI pushes its full profile + a session
-    summary. The profile is authoritative for that player id (the CLI is the
-    source of truth on that machine); the summary is appended to history."""
+    summary. The profile is authoritative for the GAME state of that player
+    id, but server-only fields (auth secret, tokens, sparks/stickers, active
+    web session) must survive the overwrite — the CLI knows nothing of them."""
     pid = profile.get("id")
     if not pid:
         raise ValueError("profile.id required")
+    existing = get_player(pid)
+    if existing:
+        for k in ("secret_hash", "secret_hint", "auth_gen", "active_quest",
+                  "sparks", "stickers", "expedition_wanted"):
+            if k in existing and k not in profile:
+                profile[k] = existing[k]
     save_player(_normalize(profile))
     if session_summary:
         append_history(pid, session_summary)

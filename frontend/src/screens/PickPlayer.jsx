@@ -9,11 +9,9 @@ export default function PickPlayer({ roster, onPick, onNew }) {
         <h2>Who's playing today?</h2>
         <div className="stack">
           {roster.map((p) => (
-            <button key={p.id} className="btn player-row" onClick={() => onPick(p.id)}>
+            <button key={p.id} className="btn player-row" onClick={() => onPick(p)}>
               <span className="player-name">{p.name}</span>
-              <span className="player-meta">
-                ⭐ {p.xp} XP &nbsp; 🔥 {p.streak}
-              </span>
+              <span className="player-meta">{p.has_secret ? '🔐' : '✨ set up'}</span>
             </button>
           ))}
           <button className="btn ghost" onClick={onNew}>

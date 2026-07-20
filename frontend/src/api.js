@@ -1,9 +1,20 @@
-// Thin fetch wrapper around the Summer Quest API.
+// Thin fetch wrapper around the Summer Quest API, with bearer-token auth.
 const BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
+
+let TOKEN = localStorage.getItem('sq_token') || ''
+
+export function setToken(t) {
+  TOKEN = t || ''
+  if (t) localStorage.setItem('sq_token', t)
+  else localStorage.removeItem('sq_token')
+}
 
 async function req(path, opts = {}) {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(TOKEN ? { 'X-Player-Token': TOKEN } : {}),
+    },
     ...opts,
   })
   if (!res.ok) {
@@ -11,7 +22,9 @@ async function req(path, opts = {}) {
     try {
       detail = (await res.json()).detail || ''
     } catch { /* non-JSON error body */ }
-    throw new Error(detail || `Request failed (${res.status})`)
+    const err = new Error(detail || `Request failed (${res.status})`)
+    err.status = res.status
+    throw err
   }
   return res.json()
 }
@@ -23,18 +36,33 @@ export const api = {
   aiStatus: (probe) => req(`/api/v1/ai/status${probe ? '?probe=true' : ''}`),
   leaderboard: () => req('/api/v1/leaderboard'),
   listPlayers: () => req('/api/v1/players'),
-  createPlayer: (name, prefs) =>
-    req('/api/v1/players', { method: 'POST', body: JSON.stringify({ name, prefs }) }),
-  getPlayer: (id) => req(`/api/v1/players/${id}`),
-  startExpedition: (id, topic) =>
-    req(`/api/v1/players/${id}/expedition`, {
+  createPlayer: (name, prefs, secret, hint) =>
+    req('/api/v1/players', {
       method: 'POST',
-      body: JSON.stringify({ topic }),
+      body: JSON.stringify({ name, prefs, secret, hint }),
     }),
+  login: (id, secret) =>
+    req(`/api/v1/players/${id}/login`, {
+      method: 'POST',
+      body: JSON.stringify({ secret }),
+    }),
+  getHint: (id) => req(`/api/v1/players/${id}/hint`),
+  setSecret: (id, secret, hint) =>
+    req(`/api/v1/players/${id}/secret`, {
+      method: 'POST',
+      body: JSON.stringify({ secret, hint }),
+    }),
+  lockout: (id) => req(`/api/v1/players/${id}/lockout`, { method: 'POST' }),
+  getPlayer: (id) => req(`/api/v1/players/${id}`),
   startQuest: (id) =>
     req(`/api/v1/players/${id}/quest`, {
       method: 'POST',
       body: JSON.stringify({ local_date: localDate() }),
+    }),
+  startExpedition: (id, topic) =>
+    req(`/api/v1/players/${id}/expedition`, {
+      method: 'POST',
+      body: JSON.stringify({ topic }),
     }),
   answer: (questId, answer, timedOut = false) =>
     req(`/api/v1/quests/${questId}/answer`, {

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { api } from './api.js'
+import { api, setToken } from './api.js'
 import PickPlayer from './screens/PickPlayer.jsx'
 import Onboarding from './screens/Onboarding.jsx'
+import Login from './screens/Login.jsx'
+import CreateSecret from './screens/CreateSecret.jsx'
 import Home from './screens/Home.jsx'
 import Quest from './screens/Quest.jsx'
 import Summary from './screens/Summary.jsx'
@@ -11,11 +13,12 @@ import Topics from './screens/Topics.jsx'
 
 const STORED_ID = 'sq_player_id'
 
-// Screens: loading -> pick | onboard -> home -> quest -> summary -> home
-//                                      home -> stats -> home
+// Screens: loading -> pick -> login|createSecret -> home -> quest -> summary
+//          pick -> onboard (new player, includes secret creation) -> home
 export default function App() {
   const [screen, setScreen] = useState('loading')
   const [player, setPlayer] = useState(null)
+  const [pending, setPending] = useState(null) // roster entry awaiting login
   const [roster, setRoster] = useState([])
   const [quest, setQuest] = useState(null)
   const [summary, setSummary] = useState(null)
@@ -39,13 +42,15 @@ export default function App() {
       const savedId = localStorage.getItem(STORED_ID)
       if (savedId) {
         try {
-          const p = await api.getPlayer(savedId)
+          const p = await api.getPlayer(savedId) // sends the stored token
           setPlayer(p)
           refreshActive(p)
           setScreen('home')
           return
         } catch {
-          localStorage.removeItem(STORED_ID) // profile gone — re-pick
+          // profile gone, or token expired/reset — back through the picker
+          localStorage.removeItem(STORED_ID)
+          setToken(null)
         }
       }
       await showPicker()
@@ -62,26 +67,25 @@ export default function App() {
     setScreen(players.length ? 'pick' : 'onboard')
   }
 
-  const choosePlayer = async (id) => {
-    setScreen('loading')
-    try {
-      const p = await api.getPlayer(id)
-      localStorage.setItem(STORED_ID, p.id)
-      setPlayer(p)
-      refreshActive(p)
-      setScreen('home')
-    } catch (e) {
-      setError(e.message)
-      setScreen('error')
-    }
+  const choosePlayer = (entry) => {
+    // Roster entries carry has_secret: password gate for players who have
+    // one, forced secret creation for those who don't.
+    setPending(entry)
+    setScreen(entry.has_secret ? 'login' : 'createSecret')
   }
 
-  const createPlayer = async (name, prefs) => {
-    const p = await api.createPlayer(name, prefs)
+  const onAuthed = (token, p) => {
+    setToken(token)
     localStorage.setItem(STORED_ID, p.id)
     setPlayer(p)
     refreshActive(p)
+    setPending(null)
     setScreen('home')
+  }
+
+  const createPlayer = async (name, prefs, secret, hint) => {
+    const r = await api.createPlayer(name, prefs, secret, hint)
+    onAuthed(r.token, r.player)
   }
 
   const enterSession = async (resp) => {
@@ -139,6 +143,7 @@ export default function App() {
 
   const switchPlayer = () => {
     localStorage.removeItem(STORED_ID)
+    setToken(null)
     setPlayer(null)
     setScreen('loading')
     showPicker().catch((e) => {
@@ -172,6 +177,10 @@ export default function App() {
     return <PickPlayer roster={roster} onPick={choosePlayer} onNew={() => setScreen('onboard')} />
   if (screen === 'onboard')
     return <Onboarding onCreate={createPlayer} onBack={roster.length ? () => setScreen('pick') : null} />
+  if (screen === 'login')
+    return <Login player={pending} onSuccess={onAuthed} onBack={switchPlayer} />
+  if (screen === 'createSecret')
+    return <CreateSecret player={pending} onSuccess={onAuthed} onBack={switchPlayer} />
   if (screen === 'quest')
     return <Quest quest={quest} onFinish={finishQuest} />
   if (screen === 'summary')

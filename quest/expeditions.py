@@ -308,11 +308,13 @@ for _topic_questions in BANK_X.values():
 
 
 def sample(topic, n, mastered=()):
-    """Pick n offline questions for a topic, unseen ones first. Falls back to
-    the full topic pool once everything's been mastered so play continues."""
+    """Pick n offline questions for a topic: unseen first, then topped up
+    from already-mastered ones so an expedition is never short — the small
+    bank is only a bridge until AI-brewed sets for the topic arrive."""
     mastered = set(mastered)
     pool = BANK_X[topic]
     fresh = [q for q in pool if q["id"] not in mastered]
-    picked = list(fresh or pool)
-    random.shuffle(picked)
-    return picked[:n]
+    seen = [q for q in pool if q["id"] in mastered]
+    random.shuffle(fresh)
+    random.shuffle(seen)
+    return (fresh + seen)[:n]

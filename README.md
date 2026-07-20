@@ -142,8 +142,13 @@ The frontend reads `VITE_API_URL` (defaults to `http://localhost:8000`).
 | Endpoint | Purpose |
 |---|---|
 | `GET /` | health check (`commit` field shows the deployed git SHA) |
-| `GET /api/v1/players` | roster for the "who's playing?" picker |
-| `POST /api/v1/players` | create a profile (`{name, prefs}`) |
+| `GET /api/v1/players` | roster for the "who's playing?" picker (names + has_secret only) |
+| `POST /api/v1/players` | create a profile (`{name, prefs, secret, hint}`) → auth token |
+| `POST /api/v1/players/{id}/login` | `{secret}` → auth token (5 tries/min) |
+| `GET /api/v1/players/{id}/hint` | the player's password hint |
+| `POST /api/v1/players/{id}/secret` | first-time secret creation (CLI imports); changing requires login |
+| `POST /api/v1/players/{id}/lockout` | "I forgot my password" → notifies the game developers |
+| `POST /api/v1/players/{id}/secret/reset` | parent reset (Bearer `SYNC_TOKEN` when set) |
 | `GET /api/v1/players/{id}` | profile + computed level/badges/active-session state |
 | `GET /api/v1/players/{id}/active` | is there an unfinished session? |
 | `GET /api/v1/players/{id}/history` | completed-session summaries |
@@ -287,7 +292,8 @@ This repo is public. A few things worth knowing if you're deploying your own cop
 - **No secrets belong in this repo.** `.env`, `.env.local`, and `.vercel/` are gitignored; `.env.example` holds placeholder values only. Never commit a real API key, database password, or deploy token — if one leaks into git history, rotate it immediately (removing the file in a later commit does not remove it from history).
 - **`SYNC_TOKEN`** gates two things: the CLI sync endpoint (`POST /api/v1/progress`) and the reports endpoint (`GET`/`DELETE /api/v1/reports`), which contains question text and kids' answers. It's optional for a small family deploy behind an obscure URL, but set it before sharing the app or the backend URL more broadly.
 - **`CORS_ORIGINS`** defaults to allowing any origin, which is convenient while standing things up but means any website could call your API from a visitor's browser. Set it to your actual Vercel URL for a real deploy.
-- **Player data has no authentication.** Anyone with a player's UUID can read their profile and history (`GET /api/v1/players/{id}`) or complete quests as them — there's no login. This is a deliberate simplicity trade-off for a same-household game with unguessable UUIDs, not something to expose as a public product without adding real auth.
+- **Player auth**: every player sets a secret password (+ a hint only they understand); logging in issues a bearer token (`X-Player-Token`) required on all player-scoped endpoints. Passwords are stored PBKDF2-hashed; tokens are stored hashed and die when the secret changes. Players imported from the CLI have no secret yet and remain open until their first web login forces them to create one. A locked-out kid can notify the game developers from the login screen; a parent resets with `POST /api/v1/players/{id}/secret/reset` (gated by `SYNC_TOKEN` when set).
+- **Rate limiting** (in-memory, per IP): 240 req/min globally, 5 login attempts/min per player, 5 new profiles/hour, and hourly caps on the endpoints that spend MiniMax credits (session starts, challenges, AI probes).
 - **The MiniMax key stays server-side** (never sent to the browser) and generation prompts explicitly forbid instructions for anything dangerous even when covering safety-adjacent Expedition topics (chemicals, venom) — see `quest/ai.py` and `quest/expeditions.py`.
 - **Deploy scripts and tokens:** `scripts/deploy_*.sh` take platform API tokens as environment variables, never as committed files. Treat a Render/Vercel/Supabase token as a password to that whole account — after using one to set up infrastructure, delete it from the platform's dashboard.
 
