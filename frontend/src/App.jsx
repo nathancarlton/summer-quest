@@ -11,6 +11,7 @@ import Stats from './screens/Stats.jsx'
 import Leaderboard from './screens/Leaderboard.jsx'
 import Topics from './screens/Topics.jsx'
 import Admin from './screens/Admin.jsx'
+import Favorites from './screens/Favorites.jsx'
 
 const STORED_ID = 'sq_player_id'
 
@@ -196,7 +197,24 @@ export default function App() {
   if (screen === 'summary')
     return <Summary summary={summary} onHome={goHome} />
   if (screen === 'stats')
-    return <Stats player={player} onBack={() => setScreen('home')} />
+    return (
+      <Stats
+        player={player}
+        onEditFavorites={() => setScreen('favorites')}
+        onBack={() => setScreen('home')}
+      />
+    )
+  if (screen === 'favorites')
+    return (
+      <Favorites
+        player={player}
+        onSaved={(p) => {
+          setPlayer(p)
+          setScreen('stats')
+        }}
+        onBack={() => setScreen('stats')}
+      />
+    )
   if (screen === 'board')
     return <Leaderboard player={player} onBack={() => setScreen('home')} />
   if (screen === 'topics')

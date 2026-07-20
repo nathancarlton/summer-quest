@@ -64,8 +64,13 @@ THEMES = [
     "a mysterious lighthouse", "a space station orbiting Mars",
     "a hidden jungle temple", "a championship soccer match",
     "a video game come to life", "a detective mystery downtown",
-    "a deep-sea submarine voyage", "a dragon's mountain lair",
+    "a deep-sea submarine voyage", "a wildlife photographer's safari",
     "a summer carnival at night", "a robot's first day of school",
+    "a time-traveler's train station", "a wildlife rescue center",
+    "an inventor's cluttered workshop", "a night market in a faraway city",
+    "an arctic research base", "a movie set where everything goes wrong",
+    "a giant treehouse city", "a baking championship finale",
+    "a secret library beneath the school", "a storm-chasing road trip",
 ]
 
 # Favorite food -> the small thing you count in a word problem. Falls back to

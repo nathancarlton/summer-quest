@@ -59,6 +59,9 @@ def _extract_json(text):
 
 GEN_SYSTEM = """You create engaging practice questions for a student entering \
 {grade}. Tone: fun, adventurous, encouraging — like a quest game. \
+Avoid overused fantasy clichés: NO dragons, wizards, or enchanted castles \
+unless the given theme explicitly features them — real-world wonder (science, \
+sports, animals, inventions, weird history) beats recycled fantasy. \
 Never say where things appear on screen (no "below", "above", "following", \
 "to the right"); the layout varies, so write "this sentence" or "the passage". \
 Return ONLY a JSON array, no prose, no markdown fences."""
@@ -70,8 +73,12 @@ reading/language skills, drawn from these categories: vocabulary, grammar, \
 reading, figurative_language, writing_mechanics.
 Emphasize these weaker skills where they fit: {weak}.
 
-Weave everything into ONE fun setting: {theme}. {favorites} Let details recur \
-so it feels like a connected story world, not random trivia.
+Set the questions loosely in this world: {theme} — but VARY the characters, \
+subjects, and scenarios from question to question; never reuse the same \
+animal, object, or person across multiple questions. Draw on the wide range \
+of things curious 11-12-year-olds find genuinely cool: space, inventions, \
+weird history, ocean creatures, sports moments, music, video games, food \
+trucks, natural disasters, mysteries, record-breaking feats. {favorites}
 
 At least one question should be type "short" (a one-sentence written answer). \
 Short-answer tasks must be PRECISELY gradable: state exactly what to produce, \
@@ -89,8 +96,12 @@ Each JSON object:
 GEN_MATH_PROMPT = """Create {n} genuinely hard math_challenge word problems for \
 a strong math student: ratios, rates, percentages, pre-algebra, multi-step logic.
 
-Set the problems in ONE fun world: {theme}. {favorites} Keep the numbers real \
-and the scenarios vivid.
+Set the problems loosely in this world: {theme} — but give each problem its \
+own fresh scenario and cast; never reuse the same animal, object, or person \
+across problems. Pull scenarios from things 11-12-year-olds actually care \
+about: games, sports stats, building things, saving up for stuff, wild \
+nature facts, space missions. {favorites} Keep the numbers real and the \
+scenarios vivid.
 
 CRITICAL — before writing each JSON object, SOLVE the problem yourself completely:
 - The correct result must be a whole number whenever the story implies one \
@@ -227,18 +238,21 @@ _PREF_PHRASES = {
 
 
 def _favorites_line(prefs):
-    """A sentence telling the model which favorites to work in (or empty).
-
-    Rotates through at most 3 per generation so a kid with many favorites
-    gets different combinations threaded into different sessions."""
+    """Favorites are SPICE, not a staple: half of all batches get no
+    favorites at all, and the rest are told to nod to at most one or two —
+    a kid who loves panthers should be delighted by an occasional panther
+    cameo, not stalked by one through every question."""
     prefs = prefs or {}
     bits = [_PREF_PHRASES[k].format(v=v) for k, v in prefs.items()
             if v and k in _PREF_PHRASES]
-    if not bits:
+    if not bits or random.random() < 0.5:
         return ""
-    if len(bits) > 3:
-        bits = random.sample(bits, 3)
-    return f"Delight the student by working in their favorites: {'; '.join(bits)}."
+    picked = random.sample(bits, min(len(bits), random.choice([1, 2])))
+    return (
+        "As a small treat, AT MOST one or two questions may subtly nod to "
+        f"{'; '.join(picked)} — every other question must be about something "
+        "completely different."
+    )
 
 
 # Adaptive challenge: the level (profile['difficulty']) picks the note that

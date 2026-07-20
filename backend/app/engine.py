@@ -118,7 +118,17 @@ def clean_prefs(raw):
 
 
 def update_prefs(p, new_prefs):
-    p.setdefault("prefs", {}).update(clean_prefs(new_prefs))
+    """Merge favorite changes; an empty value REMOVES that favorite — so a
+    kid can retire a panther era entirely, not just overwrite it."""
+    prefs = p.setdefault("prefs", {})
+    for k, v in (new_prefs or {}).items():
+        if k not in PREF_KEYS or not isinstance(v, (str, int, float)):
+            continue
+        v = str(v).strip()[:60]
+        if v:
+            prefs[k] = v
+        else:
+            prefs.pop(k, None)
     save_player(p)
     return p
 
@@ -242,7 +252,13 @@ def _finalize(p, questions, n, la_count):
 
 
 def _offline_raw(p, prefs, n, la_count):
-    extras = [q for q in bank.personalized(prefs) if bank.valid_question(q)][: min(2, n)]
+    # Personalized template questions are an occasional cameo (one, half the
+    # time), not the opening act of every session — favorites are spice.
+    extras = []
+    if random.random() < 0.5:
+        extras = [q for q in bank.personalized(prefs) if bank.valid_question(q)]
+        random.shuffle(extras)
+        extras = extras[:1]
     off = p["offline"]
     filler = bank.sample(n - len(extras), la_count, off["mastered"], off["review"])
     return extras + filler

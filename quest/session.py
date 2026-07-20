@@ -1,6 +1,7 @@
 """The daily quest: fetch questions, run the loop, award XP, log, sync."""
 import json
 import math
+import random
 from datetime import datetime, timezone
 
 from . import ai, bank, config, pool, profile as profile_mod, sync, ui
@@ -50,8 +51,13 @@ def _finalize(p, prefs, questions, n, la_count):
 
 
 def _offline_raw(p, prefs, n, la_count):
-    """Personalized recurring questions up front, then fill from the bank."""
-    extras = [q for q in bank.personalized(prefs) if _valid(q)][: min(2, n)]
+    """Bank questions, with a personalized cameo only sometimes — favorites
+    are spice, not a staple."""
+    extras = []
+    if random.random() < 0.5:
+        extras = [q for q in bank.personalized(prefs) if _valid(q)]
+        random.shuffle(extras)
+        extras = extras[:1]
     off = p["offline"]
     filler = bank.sample(n - len(extras), la_count, off["mastered"], off["review"])
     return extras + filler

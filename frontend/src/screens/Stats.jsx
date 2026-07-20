@@ -2,7 +2,7 @@ import { CATEGORY_LABELS, TOPIC_META } from '../constants.js'
 import { Hud } from './Home.jsx'
 
 // ui.show_stats: the report card — per-category accuracy + badge collection.
-export default function Stats({ player, onBack }) {
+export default function Stats({ player, onEditFavorites, onBack }) {
   const rows = Object.entries(player.categories)
     .filter(([, s]) => s.answered > 0)
     .map(([cat, s]) => ({
@@ -75,9 +75,14 @@ export default function Stats({ player, onBack }) {
             ))}
           </div>
         )}
-        <button className="btn primary" onClick={onBack}>
-          Back
-        </button>
+        <div className="row">
+          <button className="btn grow" onClick={onEditFavorites}>
+            ✏️ My favorites
+          </button>
+          <button className="btn primary grow" onClick={onBack}>
+            Back
+          </button>
+        </div>
       </div>
     </div>
   )
