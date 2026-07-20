@@ -275,6 +275,23 @@ on an overturn, correcting every stat the original ruling touched. Any
 question can also be reported directly via "📮 Report this question." Both
 land at `GET /api/v1/reports`.
 
+Two cross-player mechanisms tie it together (question ids are content-hashed,
+so they work across everyone):
+
+- **Global blocklist** — a reported or challenge-overturned question is
+  instantly pulled from *every* player's rotation, not just the reporter's.
+  The Parent Zone report card has a "♻️ restore" button if review shows the
+  question was actually fine.
+- **Shared bank** — every AI question that passes the audit joins a communal
+  pool (capped per category) that tops up all players' sessions and
+  expeditions, so one player's brewing benefits the whole family.
+
+Generated multiple-choice sets are also screened for **length tells** — a
+question whose correct option is dramatically longer than the others (the
+"thorough-sounding answer is right" giveaway) is dropped, and the prompts
+instruct the model to make wrong options the detailed-sounding ones as often
+as right ones.
+
 ### The Parent Zone (admin)
 
 The "🔧 Parent zone" link on the player-picker screen opens the admin view.

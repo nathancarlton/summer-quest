@@ -7,6 +7,29 @@ const TYPE_META = {
   manual: { emoji: '📮', label: 'Reported question', cls: 'rep-manual' },
 }
 
+// Reported/overturned questions are auto-blocked for everyone; this puts
+// one back after the parent decides it was fine after all.
+function RestoreButton({ qid, adminKey }) {
+  const [state, setState] = useState('idle')
+  const restore = async () => {
+    setState('busy')
+    try {
+      await admin.unblock(qid, adminKey)
+      setState('done')
+    } catch (e) {
+      setState('idle')
+      alert(`Restore failed: ${e.message}`)
+    }
+  }
+  if (state === 'done')
+    return <p className="bonus-done">✅ Question restored to the rotation.</p>
+  return (
+    <button className="btn" onClick={restore} disabled={state === 'busy'}>
+      {state === 'busy' ? 'Restoring…' : '♻️ This question was fine — restore it'}
+    </button>
+  )
+}
+
 function Report({ r, adminKey, onReset }) {
   const meta = TYPE_META[r.type] || { emoji: '📄', label: r.type, cls: '' }
   const [resetState, setResetState] = useState('idle') // idle -> confirm -> done
@@ -48,6 +71,9 @@ function Report({ r, adminKey, onReset }) {
         </>
       )}
       {r.note && <p className="rep-detail">{r.note}</p>}
+      {q?.id && (r.type === 'manual' || r.type === 'challenge_won') && (
+        <RestoreButton qid={q.id} adminKey={adminKey} />
+      )}
       {r.type === 'locked_out' && resetState !== 'done' && (
         <button className={`btn ${resetState === 'confirm' ? 'boss-btn' : ''}`} onClick={reset}>
           {resetState === 'confirm'

@@ -97,4 +97,10 @@ export const admin = {
       method: 'POST',
       headers: adminHeaders(key),
     }),
+  unblock: (qid, key) =>
+    req('/api/v1/questions/unblock', {
+      method: 'POST',
+      headers: adminHeaders(key),
+      body: JSON.stringify({ id: qid }),
+    }),
 }

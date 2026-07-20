@@ -189,12 +189,18 @@ def issue_token(p):
     return token
 
 
+def token_record(token):
+    """Raw token record ({pid, gen}) or None — lets callers who already
+    hold the player validate without a second player read."""
+    if not token:
+        return None
+    return storage.get_json(security.token_key(token))
+
+
 def player_for_token(token):
     """Resolve a bearer token to its player, or None. Tokens die when the
     secret changes or is reset (generation mismatch)."""
-    if not token:
-        return None
-    rec = storage.get_json(security.token_key(token))
+    rec = token_record(token)
     if not rec:
         return None
     p = get_player(rec.get("pid"))
@@ -223,6 +229,71 @@ def _client_date(local_date):
     return date.today().isoformat()
 
 
+# ─── Global question blocklist + shared bank ────────────────────────────────
+# Question ids are content-hashed, so blocking/sharing works across players.
+
+BLOCKED_KEY = "blocked_questions"
+MAX_BLOCKED = 500
+
+
+def blocked_ids():
+    return set(storage.get_json(BLOCKED_KEY, {}).keys())
+
+
+def block_question(qid, reason, text=""):
+    """A challenged-and-overturned or reported question is pulled from
+    EVERYONE's rotation until a parent restores it in the Parent Zone."""
+    blocked = storage.get_json(BLOCKED_KEY, {})
+    blocked[qid] = {"reason": reason, "text": str(text)[:200],
+                    "ts": datetime.now(timezone.utc).isoformat()}
+    if len(blocked) > MAX_BLOCKED:
+        oldest = sorted(blocked.items(), key=lambda kv: kv[1].get("ts", ""))
+        blocked = dict(oldest[len(blocked) - MAX_BLOCKED:])
+    storage.set_json(BLOCKED_KEY, blocked)
+
+
+def unblock_question(qid):
+    blocked = storage.get_json(BLOCKED_KEY, {})
+    if blocked.pop(qid, None) is not None:
+        storage.set_json(BLOCKED_KEY, blocked)
+        return True
+    return False
+
+
+SHARED_LA_KEY = "shared_bank:la"
+SHARED_MATH_KEY = "shared_bank:math"
+MAX_SHARED = 300
+
+
+def _shared_key_for(q):
+    if q.get("category") in expeditions.TOPICS:
+        return f"shared_bank:x:{q['category']}"
+    if q.get("category") == "math_challenge":
+        return SHARED_MATH_KEY
+    return SHARED_LA_KEY
+
+
+def share_questions(qs):
+    """Audited AI questions join the communal bank so every player benefits
+    from questions any one player's brewing produced (and paid for)."""
+    by_key = {}
+    for q in qs:
+        if q.get("id"):
+            by_key.setdefault(_shared_key_for(q), []).append(q)
+    for key, batch in by_key.items():
+        bank_qs = storage.get_json(key, [])
+        known = {b.get("id") for b in bank_qs}
+        bank_qs.extend(q for q in batch if q["id"] not in known)
+        storage.set_json(key, bank_qs[-MAX_SHARED:])
+
+
+def shared_sample(key, n, exclude):
+    """Fresh communal questions for a top-up: not mastered, not blocked."""
+    pool = [q for q in storage.get_json(key, []) if q.get("id") not in exclude]
+    random.shuffle(pool)
+    return pool[:n]
+
+
 # ─── Question selection (mirrors session.py) ────────────────────────────────
 
 def _build_mix(n):
@@ -231,21 +302,33 @@ def _build_mix(n):
 
 
 def _finalize(p, questions, n, la_count):
-    """No repeats from ANY source: drop mastered/duplicate questions by
-    content-hash id, top back up from the bank, guarantee option letters."""
+    """No repeats from ANY source: drop mastered/duplicate/globally-blocked
+    questions by content-hash id, top back up from the shared communal bank
+    first (AI questions other players' brewing produced), then the curated
+    bank, and guarantee option letters."""
     off = p["offline"]
     mastered = set(off["mastered"])
+    blocked = blocked_ids()
     used, result = set(), []
     for q in questions:
         qid = q.get("id") or bank.question_id(q)
         q["id"] = qid
-        if qid in mastered or qid in used:
+        if qid in mastered or qid in used or qid in blocked:
             continue
         used.add(qid)
         result.append(q)
     if len(result) < n:
-        for q in bank.sample(n - len(result), la_count, mastered | used, off["review"]):
-            if q["id"] not in used:
+        exclude = mastered | used | blocked
+        communal = (shared_sample(SHARED_LA_KEY, n, exclude)
+                    + shared_sample(SHARED_MATH_KEY, n, exclude))
+        random.shuffle(communal)
+        for q in communal[: n - len(result)]:
+            used.add(q["id"])
+            result.append(q)
+    if len(result) < n:
+        for q in bank.sample(n - len(result), la_count, mastered | used | blocked,
+                             off["review"]):
+            if q["id"] not in used and q["id"] not in blocked:
                 used.add(q["id"])
                 result.append(q)
     return [bank.ensure_option_letters(q) for q in result[:n]]
@@ -456,6 +539,7 @@ def refill_pool_in_background(p):
                 sessions.append({"theme": theme, "difficulty": difficulty,
                                  "questions": qs, "verified": True})
                 storage.set_json(_pool_key(pid), sessions)
+                share_questions(qs)  # audited → into the communal bank
             # Daily quests come first; only once that pool is full do we brew
             # expedition trivia with the leftover background time.
             _fill_expeditions(pid)
@@ -515,6 +599,7 @@ def _fill_expeditions(pid):
         # verified: generate_expedition already ran the MC audit.
         sessions.append({"topic": topic, "questions": qs, "verified": True})
         storage.set_json(_expool_key(pid), sessions)
+        share_questions(qs)  # audited → into the communal bank
         p = get_player(pid)
         if p and p.get("expedition_wanted") == topic:  # wish granted
             p["expedition_wanted"] = None
@@ -532,16 +617,24 @@ def start_expedition(p, topic=None):
         return _resume_payload(active)
     if topic is not None and topic not in expeditions.TOPICS:
         raise KeyError(topic)
+    blocked = blocked_ids()
     qs = []
     pooled = _expool_take(p["id"], topic)
     if pooled:
         topic = pooled["topic"]
-        qs = [q for q in pooled["questions"] if expeditions.valid_question(q)]
+        qs = [q for q in pooled["questions"]
+              if expeditions.valid_question(q) and q.get("id") not in blocked]
     if len(qs) < 3:
         topic = topic or random.choice(list(expeditions.TOPICS))
-        qs = expeditions.sample(topic, EXPEDITION_SIZE, p["offline"]["mastered"])
-        # Served from the small offline bank — remember the topic so the
-        # brewer makes fresh AI questions for it before anything else.
+        exclude = set(p["offline"]["mastered"]) | blocked
+        # Communal AI questions for this topic first, then the curated bank.
+        qs = shared_sample(f"shared_bank:x:{topic}", EXPEDITION_SIZE, exclude)
+        if len(qs) < EXPEDITION_SIZE:
+            have = {q["id"] for q in qs}
+            qs += [q for q in expeditions.sample(topic, EXPEDITION_SIZE, exclude)
+                   if q["id"] not in have][: EXPEDITION_SIZE - len(qs)]
+        # Served from banks — remember the topic so the brewer makes fresh
+        # AI questions for it before anything else.
         p["expedition_wanted"] = topic
     seen = set()
     unique = []
@@ -693,10 +786,11 @@ TIMEOUT_FEEDBACK = "⏰ Time's up! No worries — read fast, think smart, and gr
 TIMEOUT_GRACE_SECONDS = 60
 
 
-def answer_question(quest, answer, timed_out=False):
+def answer_question(quest, answer, timed_out=False, player=None):
     """Grade the next unanswered question, update the profile, return the
     reveal. Questions are strictly in order — the index is len(results).
-    Expeditions pay Sparks instead of XP and have no boss."""
+    Expeditions pay Sparks instead of XP and have no boss. Pass `player`
+    when already loaded (the API auth path has it) to skip a store read."""
     i = len(quest["results"])
     if i >= len(quest["questions"]):
         raise IndexError("quest already complete")
@@ -721,7 +815,7 @@ def answer_question(quest, answer, timed_out=False):
     else:
         xp = config.XP_PER_CORRECT * (config.XP_BOSS_MULTIPLIER if is_boss else 1)
 
-    p = get_player(quest["player_id"])
+    p = player or get_player(quest["player_id"])
     if correct:
         quest["correct_count"] += 1
         quest["xp_gained"] += xp
@@ -759,13 +853,13 @@ def answer_question(quest, answer, timed_out=False):
     }
 
 
-def complete_quest(quest):
+def complete_quest(quest, player=None):
     """Streak bonus, badges, history — then the quest record is deleted."""
     if len(quest["results"]) < len(quest["questions"]):
         raise ValueError("quest still has unanswered questions")
     if quest.get("kind") == "expedition":
-        return _complete_expedition(quest)
-    p = get_player(quest["player_id"])
+        return _complete_expedition(quest, player)
+    p = player or get_player(quest["player_id"])
 
     xp_gained = quest["xp_gained"]
     streak_bonus = (
@@ -811,10 +905,10 @@ def complete_quest(quest):
     }
 
 
-def _complete_expedition(quest):
+def _complete_expedition(quest, player=None):
     """Award the topic sticker, log it, clean up. No streak/badge/difficulty
     involvement — expeditions are their own light economy."""
-    p = get_player(quest["player_id"])
+    p = player or get_player(quest["player_id"])
     topic = quest["topic"]
     stickers = p.setdefault("stickers", {})
     stickers[topic] = stickers.get(topic, 0) + 1
@@ -893,7 +987,7 @@ def clear_reports():
     storage.store.delete(REPORTS_KEY)
 
 
-def challenge_answer(quest, index):
+def challenge_answer(quest, index, player=None):
     """Adversarial re-evaluation of a ruling the learner disputes. One
     challenge per question. An overturn pays the XP/Sparks retroactively,
     corrects every stat the original ruling touched, and auto-files a
@@ -922,7 +1016,7 @@ def challenge_answer(quest, index):
 
     entry["challenged"] = True
     xp_awarded = 0
-    p = get_player(quest["player_id"])
+    p = player or get_player(quest["player_id"])
     if overturned:
         entry["correct"] = True
         is_expedition = quest.get("kind") == "expedition"
@@ -950,6 +1044,9 @@ def challenge_answer(quest, index):
         quest["xp_gained"] += xp_awarded
         if q.get("id"):
             profile_mod.record_offline(p, q["id"], True)
+            # An overturned ruling means the question (or its key) is bad —
+            # pull it from everyone's rotation pending parent review.
+            block_question(q["id"], "challenge_overturned", q.get("question", ""))
         save_player(p)
         file_report(p, quest, index, "challenge_won",
                     note="auto-filed: the appeals judge overturned this ruling")

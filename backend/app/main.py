@@ -18,6 +18,7 @@ which closes that door. Rate limits protect password guessing and the
 endpoints that spend MiniMax credits.
 """
 import os
+import time
 from typing import Optional
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
@@ -52,7 +53,12 @@ async def global_rate_limit(request: Request, call_next):
         except HTTPException as e:
             return JSONResponse(status_code=e.status_code,
                                 content={"detail": e.detail})
-    return await call_next(request)
+    start = time.perf_counter()
+    response = await call_next(request)
+    # Server-side handling time, visible in browser devtools — separates
+    # "the backend is slow" from "the network/wake-up is slow" at a glance.
+    response.headers["X-Process-Time"] = f"{(time.perf_counter() - start) * 1000:.0f}ms"
+    return response
 
 
 # ─── Auth helpers ────────────────────────────────────────────────────────────
@@ -67,21 +73,26 @@ def _player_or_404(pid):
 def _authed_player(pid, token):
     """Load the player, enforcing the token once they have a secret set.
     Secret-less players (CLI imports, pre-auth profiles) pass through — the
-    web app forces them to create a secret at login."""
+    web app forces them to create a secret at login. One player read + one
+    token read; the generation check runs against the already-loaded player
+    (answer latency lives and dies by store round trips)."""
     p = _player_or_404(pid)
     if p.get("secret_hash"):
-        tp = engine.player_for_token(token)
-        if not tp or tp["id"] != pid:
+        rec = engine.token_record(token)
+        if not rec or rec.get("pid") != pid \
+                or rec.get("gen") != p.get("auth_gen", 0):
             raise HTTPException(401, "login required")
     return p
 
 
 def _authed_quest(qid, token):
+    """Returns (quest, player) so handlers can pass the already-loaded
+    player into the engine instead of re-reading it."""
     quest = engine.get_quest(qid)
     if quest is None:
         raise HTTPException(404, "quest not found (already completed?)")
-    _authed_player(quest["player_id"], token)
-    return quest
+    player = _authed_player(quest["player_id"], token)
+    return quest, player
 
 
 def _any_valid_token(token):
@@ -323,18 +334,18 @@ class AnswerBody(BaseModel):
 @app.post("/api/v1/quests/{qid}/answer")
 def answer_question(qid: str, body: AnswerBody,
                     x_player_token: str = Header(default="")):
-    quest = _authed_quest(qid, x_player_token)
+    quest, player = _authed_quest(qid, x_player_token)
     try:
-        return engine.answer_question(quest, body.answer, body.timed_out)
+        return engine.answer_question(quest, body.answer, body.timed_out, player)
     except IndexError:
         raise HTTPException(409, "all questions already answered")
 
 
 @app.post("/api/v1/quests/{qid}/complete")
 def complete_quest(qid: str, x_player_token: str = Header(default="")):
-    quest = _authed_quest(qid, x_player_token)
+    quest, player = _authed_quest(qid, x_player_token)
     try:
-        return engine.complete_quest(quest)
+        return engine.complete_quest(quest, player)
     except ValueError as e:
         raise HTTPException(409, str(e))
 
@@ -349,9 +360,9 @@ def challenge_answer(qid: str, body: ChallengeBody,
                      x_player_token: str = Header(default="")):
     """The learner disputes a ruling — an independent AI appeals judge
     re-evaluates. One challenge per question."""
-    quest = _authed_quest(qid, x_player_token)
+    quest, player = _authed_quest(qid, x_player_token)
     try:
-        return engine.challenge_answer(quest, body.index)
+        return engine.challenge_answer(quest, body.index, player)
     except IndexError:
         raise HTTPException(409, "that question hasn't been answered yet")
     except ValueError as e:
@@ -367,9 +378,13 @@ class ReportBody(BaseModel):
           dependencies=[Depends(security.rate_limit("report", 20, 3600))])
 def report_issue(qid: str, body: ReportBody,
                  x_player_token: str = Header(default="")):
-    quest = _authed_quest(qid, x_player_token)
-    p = engine.get_player(quest["player_id"]) or {}
-    engine.file_report(p, quest, body.index, "manual", body.note)
+    quest, player = _authed_quest(qid, x_player_token)
+    engine.file_report(player, quest, body.index, "manual", body.note)
+    # A reported question is pulled from EVERYONE's rotation until a parent
+    # reviews it in the Parent Zone.
+    q = quest["questions"][body.index] if body.index < len(quest["questions"]) else None
+    if q and q.get("id"):
+        engine.block_question(q["id"], "reported", q.get("question", ""))
     return {"ok": True}
 
 
@@ -395,6 +410,19 @@ def clear_reports(authorization: str = Header(default=""), token: str = ""):
     _require_reports_auth(authorization, token)
     engine.clear_reports()
     return {"ok": True}
+
+
+class UnblockBody(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+
+
+@app.post("/api/v1/questions/unblock")
+def unblock_question(body: UnblockBody, authorization: str = Header(default=""),
+                     token: str = ""):
+    """Parent review outcome: the question was actually fine — put it back
+    into everyone's rotation."""
+    _require_reports_auth(authorization, token)
+    return {"ok": True, "unblocked": engine.unblock_question(body.id)}
 
 
 # ─── CLI sync (the contract documented in quest/sync.py) ─────────────────────

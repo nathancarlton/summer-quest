@@ -56,26 +56,37 @@ class SQLiteStore:
 
 
 class PostgresStore:
-    def __init__(self, url):
-        import psycopg  # imported lazily so local dev never needs it
+    """Postgres kv store with CONNECTION POOLING.
 
-        self._psycopg = psycopg
-        self.url = url
-        with self._connect() as c:
+    A fresh connection per operation costs a full TLS handshake to the
+    (possibly cross-region) database — ~300ms each, and one answered
+    question touches the store ~5-7 times, which is where "why does
+    clicking A take 3 seconds?" came from. The pool keeps a few
+    connections warm so each op is just a query round trip."""
+
+    def __init__(self, url):
+        # Imported lazily so local dev (SQLite) never needs these packages.
+        from psycopg_pool import ConnectionPool
+
+        self.pool = ConnectionPool(
+            url,
+            min_size=0,
+            max_size=5,  # single free-tier instance; Supabase pooler-friendly
+            open=True,
+            kwargs={"autocommit": True},
+        )
+        with self.pool.connection() as c:
             c.execute(
                 "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
             )
 
-    def _connect(self):
-        return self._psycopg.connect(self.url)
-
     def get(self, key):
-        with self._connect() as c:
+        with self.pool.connection() as c:
             row = c.execute("SELECT value FROM kv WHERE key = %s", (key,)).fetchone()
         return row[0] if row else None
 
     def set(self, key, value):
-        with self._connect() as c:
+        with self.pool.connection() as c:
             c.execute(
                 "INSERT INTO kv (key, value) VALUES (%s, %s) "
                 "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
@@ -83,11 +94,11 @@ class PostgresStore:
             )
 
     def delete(self, key):
-        with self._connect() as c:
+        with self.pool.connection() as c:
             c.execute("DELETE FROM kv WHERE key = %s", (key,))
 
     def keys(self, prefix):
-        with self._connect() as c:
+        with self.pool.connection() as c:
             rows = c.execute(
                 "SELECT key FROM kv WHERE key LIKE %s", (prefix + "%",)
             ).fetchall()

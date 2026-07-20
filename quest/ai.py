@@ -80,6 +80,9 @@ of things curious 11-12-year-olds find genuinely cool: space, inventions, \
 weird history, ocean creatures, sports moments, music, video games, food \
 trucks, natural disasters, mysteries, record-breaking feats. {favorites}
 
+NO LENGTH TELLS: never let the correct option be recognizably the longest or \
+most detailed — keep options similar in length, and sometimes make a wrong \
+option the longest one.
 At least one question should be type "short" (a one-sentence written answer). \
 Short-answer tasks must be PRECISELY gradable: state exactly what to produce, \
 and never ask for something with no correct form (e.g., a list needs THREE OR \
@@ -120,6 +123,10 @@ Each must be type "mc" with exactly 4 options. Each JSON object:
 GEN_EXPEDITION_PROMPT = """Create {n} fun multiple-choice TRIVIA questions for a \
 curious student about {topic}: {desc}.
 Mix jaw-dropping "whoa, really?!" facts with genuinely useful knowledge.
+NO LENGTH TELLS: the correct option must NOT be recognizably the longest or \
+most detailed one. Keep all four options about the same length, and often make \
+a WRONG option the longest and most detailed-sounding. Save explanations for \
+the "explanation" field — the correct option itself should be short and plain.
 ACCURACY MATTERS: use only facts you are certain of. For numbers that change \
 over time (populations, company values, store counts), say "about" and make \
 the answer choices far apart.
@@ -205,6 +212,22 @@ def _looks_confused(q):
     return bool(_CONFUSED_RE.search(str(q.get("explanation") or "")))
 
 
+def _length_tell(q):
+    """True when the correct MC option is so much longer than every other
+    option that its length gives the answer away — a known habit of
+    generated questions ('the thorough-sounding one is right')."""
+    if q.get("type") != "mc" or not q.get("options"):
+        return False
+    letter = str(q.get("answer", "")).strip()[:1].upper()
+    idx = "ABCD".find(letter)
+    if idx == -1 or idx >= len(q["options"]):
+        return False
+    strip = lambda o: re.sub(r"^\s*[A-Da-d][.):]\s*", "", str(o)).strip()
+    correct_len = len(strip(q["options"][idx]))
+    others = [len(strip(o)) for i, o in enumerate(q["options"]) if i != idx]
+    return correct_len > 25 and correct_len > 1.5 * max(others)
+
+
 def _gen_batch(prompt):
     text = _chat(
         [
@@ -218,7 +241,8 @@ def _gen_batch(prompt):
     if not isinstance(data, list):
         raise ValueError("AI returned unexpected shape")
     return [_sanitize(q) for q in data
-            if isinstance(q, dict) and not _looks_confused(q)]
+            if isinstance(q, dict) and not _looks_confused(q)
+            and not _length_tell(q)]
 
 
 # How each stored favorite reads inside the prompt. Keys line up with the
