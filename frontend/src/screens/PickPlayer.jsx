@@ -1,7 +1,7 @@
 import FontPicker from '../FontPicker.jsx'
 import ThemePicker from '../ThemePicker.jsx'
 
-export default function PickPlayer({ roster, onPick, onNew }) {
+export default function PickPlayer({ roster, onPick, onNew, onAdmin }) {
   return (
     <div className="shell center">
       <h1 className="logo">🗺️ Summer Quest</h1>
@@ -23,6 +23,9 @@ export default function PickPlayer({ roster, onPick, onNew }) {
         <ThemePicker />
         <FontPicker />
       </div>
+      <button className="link" onClick={onAdmin}>
+        🔧 Parent zone
+      </button>
     </div>
   )
 }

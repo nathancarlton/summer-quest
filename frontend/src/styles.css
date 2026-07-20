@@ -639,6 +639,24 @@ textarea:focus {
   font-weight: 600;
 }
 
+.answer-recap {
+  text-align: left;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.recap-label {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
 .result-feedback {
   font-style: italic;
   color: var(--ink);
@@ -835,6 +853,57 @@ textarea:focus {
 .lb-small {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+/* ─── Parent Zone reports ─── */
+.report {
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-left-width: 6px;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 4px 14px var(--shadow);
+}
+
+.rep-locked {
+  border-left-color: var(--bad);
+}
+
+.rep-won {
+  border-left-color: var(--accent);
+}
+
+.rep-manual {
+  border-left-color: var(--warn);
+}
+
+.rep-head {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rep-type {
+  font-weight: 700;
+}
+
+.rep-when {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.rep-q {
+  font-weight: 600;
+}
+
+.rep-detail {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 
 /* ─── Spinner ─── */

@@ -10,6 +10,7 @@ import Summary from './screens/Summary.jsx'
 import Stats from './screens/Stats.jsx'
 import Leaderboard from './screens/Leaderboard.jsx'
 import Topics from './screens/Topics.jsx'
+import Admin from './screens/Admin.jsx'
 
 const STORED_ID = 'sq_player_id'
 
@@ -173,8 +174,17 @@ export default function App() {
       </div>
     )
   }
+  if (screen === 'admin')
+    return <Admin onBack={switchPlayer} />
   if (screen === 'pick')
-    return <PickPlayer roster={roster} onPick={choosePlayer} onNew={() => setScreen('onboard')} />
+    return (
+      <PickPlayer
+        roster={roster}
+        onPick={choosePlayer}
+        onNew={() => setScreen('onboard')}
+        onAdmin={() => setScreen('admin')}
+      />
+    )
   if (screen === 'onboard')
     return <Onboarding onCreate={createPlayer} onBack={roster.length ? () => setScreen('pick') : null} />
   if (screen === 'login')

@@ -275,6 +275,18 @@ on an overturn, correcting every stat the original ruling touched. Any
 question can also be reported directly via "📮 Report this question." Both
 land at `GET /api/v1/reports`.
 
+### The Parent Zone (admin)
+
+The "🔧 Parent zone" link on the player-picker screen opens the admin view.
+The admin key is the backend's `SYNC_TOKEN` — set it on the service
+(`export SYNC_TOKEN=... && bash scripts/deploy_render.sh`, or via the Render
+dashboard) and enter it once; it's remembered on that device. Inside:
+flagged questions with the kid's answer and the feedback they saw, overturned
+AI rulings, and locked-out password requests with a one-click reset button
+(the kid creates a new secret at next login). Until a `SYNC_TOKEN` is set,
+reports and resets are open — fine briefly, but set one before sharing the
+app around.
+
 ### Point the CLI at the backend (optional)
 
 Set in each machine's `.env`: `SYNC_URL=https://your-backend-url` and a matching `SYNC_TOKEN` — completed CLI sessions then appear in the backend's history via the contract in `quest/sync.py`.

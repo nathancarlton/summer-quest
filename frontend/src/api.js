@@ -11,11 +11,12 @@ export function setToken(t) {
 
 async function req(path, opts = {}) {
   const res = await fetch(`${BASE}${path}`, {
+    ...opts,
     headers: {
       'Content-Type': 'application/json',
       ...(TOKEN ? { 'X-Player-Token': TOKEN } : {}),
+      ...(opts.headers || {}),
     },
-    ...opts,
   })
   if (!res.ok) {
     let detail = ''
@@ -83,4 +84,17 @@ export const api = {
     }),
   updatePrefs: (id, prefs) =>
     req(`/api/v1/players/${id}/prefs`, { method: 'POST', body: JSON.stringify({ prefs }) }),
+}
+
+// Parent Zone: authenticated with the backend's SYNC_TOKEN as the admin key.
+const adminHeaders = (key) => (key ? { Authorization: `Bearer ${key}` } : {})
+
+export const admin = {
+  reports: (key) => req('/api/v1/reports', { headers: adminHeaders(key) }),
+  clear: (key) => req('/api/v1/reports', { method: 'DELETE', headers: adminHeaders(key) }),
+  resetSecret: (pid, key) =>
+    req(`/api/v1/players/${pid}/secret/reset`, {
+      method: 'POST',
+      headers: adminHeaders(key),
+    }),
 }

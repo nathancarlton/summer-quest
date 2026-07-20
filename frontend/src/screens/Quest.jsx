@@ -42,6 +42,7 @@ export default function Quest({ quest, onFinish }) {
   const [index, setIndex] = useState(quest.answered || 0)
   const [written, setWritten] = useState('')
   const [result, setResult] = useState(null) // grading reveal for current q
+  const [submitted, setSubmitted] = useState('') // what the kid answered, for display
   const [cheer, setCheer] = useState('')
   const [correctSoFar, setCorrectSoFar] = useState(quest.correct_so_far || 0)
   const [bossFaced, setBossFaced] = useState(false)
@@ -64,6 +65,13 @@ export default function Quest({ quest, onFinish }) {
     if (busy || result) return
     setBusy(true)
     setError('')
+    // Remember what they answered in display form — the buttons/textarea
+    // disappear at the reveal, but their answer must stay on screen,
+    // especially while a challenge is being judged.
+    if (timedOut) setSubmitted('(time ran out)')
+    else if (q.type === 'mc')
+      setSubmitted(q.options['ABCD'.indexOf(answer)] || answer)
+    else setSubmitted(answer)
     try {
       const r = await api.answer(quest.quest_id, answer, timedOut)
       setCheer(timedOut ? "⏰ Time's up!" : pick(r.correct ? CHEERS : ENCOURAGE))
@@ -89,6 +97,7 @@ export default function Quest({ quest, onFinish }) {
     }
     setResult(null)
     setWritten('')
+    setSubmitted('')
     setChallenge(null)
     setReported(false)
     // Reset the clock in the SAME batch as the index change — otherwise a
@@ -238,15 +247,25 @@ export default function Quest({ quest, onFinish }) {
                   {result.correct ? '🎉 ✨ ⭐' : '💪 💪 💪'}
                 </div>
                 <div className="result-cheer">{cheer}</div>
-                {result.correct ? (
+                {result.correct && (
                   <div className="result-xp">
                     CORRECT! +{result.xp_gained} {pointsLabel}
                   </div>
-                ) : (
-                  <div className="result-answer">
-                    {q.type === 'mc' ? `The answer was ${result.answer}.` : ''}
-                  </div>
                 )}
+                <div className="answer-recap">
+                  <div>
+                    <span className="recap-label">You answered:</span> {submitted}
+                  </div>
+                  {!result.correct && (
+                    <div>
+                      <span className="recap-label">Official answer:</span>{' '}
+                      {q.type === 'mc'
+                        ? q.options.find((o) => o.startsWith(result.answer + '.')) ||
+                          result.answer
+                        : result.answer}
+                    </div>
+                  )}
+                </div>
                 {result.feedback && <p className="result-feedback">{result.feedback}</p>}
 
                 {!result.correct && (
