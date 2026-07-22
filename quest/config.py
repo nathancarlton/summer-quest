@@ -57,6 +57,23 @@ CATEGORIES = {
     "math_challenge": "math",
 }
 
+# Subtopic balancing: for any category listed here, question generation and
+# per-learner tracking rotate evenly through these subtopics. Left to itself
+# the model collapses onto the most prototypical concepts (nearly every
+# figurative_language question came out simile/metaphor); an explicit
+# least-practiced-first rotation keeps coverage even. Add a list for any
+# category that needs the same treatment.
+SUBTOPICS = {
+    "figurative_language": [
+        "simile", "metaphor", "personification", "hyperbole",
+        "idiom", "onomatopoeia", "alliteration",
+    ],
+    "math_challenge": [
+        "ratios", "rates", "percentages", "mean", "median", "mode",
+        "range", "percentile", "pre-algebra", "multi-step logic",
+    ],
+}
+
 # --- Personalization ---
 # One theme is chosen per session so questions feel like a single little world
 # (the way an AI-generated "lighthouse" thread felt during playtesting).

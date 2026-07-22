@@ -1253,19 +1253,104 @@ def ensure_option_letters(q):
     return q
 
 
-# Give every bank question a stable id so progress can be tracked across sessions.
+# ─── Subtopic tagging (config.SUBTOPICS) ────────────────────────────────────
+# Keyword patterns identifying which subtopic a question drills. Checked
+# against the correct option first (decisive for "which device is this?"
+# questions), then the question + explanation text. Deliberately conservative:
+# a subtopic with no safe pattern (or no match) stays untagged rather than
+# guessing wrong. Only questions in tracked categories are ever matched, so
+# e.g. vocabulary's "what does X mean?" never trips the math "mean" pattern.
+_SUBTOPIC_PATTERNS = {
+    "simile": r"\bsimiles?\b",
+    "metaphor": r"\bmetaphors?\b",
+    "personification": r"\bpersonif\w+\b",
+    "hyperbole": r"\bhyperbol\w+\b",
+    "idiom": r"\bidioms?\b",
+    "onomatopoeia": r"\bonomatopoei\w+\b",
+    "alliteration": r"\balliterat\w+\b",
+    "mean": r"\b(?:mean|average)\b",
+    "median": r"\bmedians?\b",
+    "mode": r"\bmodes?\b",
+    "range": r"\brange of\b",
+    "percentile": r"\bpercentiles?\b",
+    "ratios": r"\bratios?\b",
+    "rates": r"\brates?\b|\bper (?:hour|minute|second|day)\b",
+    "percentages": r"\bpercent(?:age)?s?\b|%",
+}
+
+
+def infer_subtopic(q):
+    """Best-effort subtopic for a question that lacks an explicit tag.
+    Returns None when nothing matches confidently."""
+    subs = config.SUBTOPICS.get(q.get("category"))
+    if not subs:
+        return None
+    letter = str(q.get("answer", "")).strip()[:1].upper()
+    idx = "ABCD".find(letter)
+    opts = q.get("options") or []
+    texts = [str(opts[idx])] if 0 <= idx < len(opts) else []
+    texts.append(f"{q.get('question') or ''} {q.get('explanation') or ''}")
+    for text in texts:
+        for sub in subs:
+            pat = _SUBTOPIC_PATTERNS.get(sub)
+            if pat and re.search(pat, text, re.IGNORECASE):
+                return sub
+    return None
+
+
+def tag_subtopic(q):
+    """Normalize a question's subtopic tag in place: keep a valid AI-provided
+    tag, else infer one from the text. Untracked categories carry no tag."""
+    subs = config.SUBTOPICS.get(q.get("category"))
+    if not subs:
+        q.pop("subtopic", None)
+        return q
+    tag = str(q.get("subtopic") or "").strip().lower()
+    q["subtopic"] = tag if tag in subs else infer_subtopic(q)
+    return q
+
+
+# Give every bank question a stable id so progress can be tracked across
+# sessions, and a subtopic tag so sampling can balance coverage.
 for _q in BANK:
     _q["id"] = question_id(_q)
+    tag_subtopic(_q)
 
 
-def _order(pool, review):
+def _balance(qs, subtopic_plan):
+    """Within each tracked category, rearrange that category's questions to
+    round-robin through subtopics in the learner's least-practiced-first
+    order. Positions are preserved — the category mix and every untracked
+    question stay exactly where the shuffle put them."""
+    for category, order in (subtopic_plan or {}).items():
+        idxs = [i for i, q in enumerate(qs) if q.get("category") == category]
+        if len(idxs) < 2:
+            continue
+        groups = {}
+        for i in idxs:
+            groups.setdefault(qs[i].get("subtopic"), []).append(qs[i])
+        # Least-practiced subtopics first; untagged questions bring up the rear.
+        cycle = [s for s in order if s in groups]
+        cycle += [s for s in groups if s not in cycle]
+        arranged = []
+        while len(arranged) < len(idxs):
+            for s in cycle:
+                if groups[s]:
+                    arranged.append(groups[s].pop(0))
+        for i, q in zip(idxs, arranged):
+            qs[i] = q
+    return qs
+
+
+def _order(pool, review, subtopic_plan=None):
     """Questions due for review (missed in a past session) come first, then
-    fresh ones — each group shuffled so sessions still feel varied."""
+    fresh ones — each group shuffled so sessions still feel varied, then
+    nudged toward the subtopics this learner has practiced least."""
     due = [q for q in pool if q["id"] in review]
     fresh = [q for q in pool if q["id"] not in review]
     random.shuffle(due)
     random.shuffle(fresh)
-    return due + fresh
+    return _balance(due, subtopic_plan) + _balance(fresh, subtopic_plan)
 
 
 def _mc_from_numbers(correct, distractors):
@@ -1363,7 +1448,7 @@ def personalized(prefs):
     return [food_q, animal_q]
 
 
-def sample(n, la_count, mastered=(), review=()):
+def sample(n, la_count, mastered=(), review=(), subtopic_plan=None):
     """Pick a session's offline questions.
 
     Skips questions already answered correctly (`mastered`) and surfaces
@@ -1379,7 +1464,7 @@ def sample(n, la_count, mastered=(), review=()):
         unmastered = [q for q in pool if q["id"] not in mastered]
         return unmastered or pool
 
-    picked = _order(available(la), review)[:la_count]
-    picked += _order(available(math), review)[: n - len(picked)]
+    picked = _order(available(la), review, subtopic_plan)[:la_count]
+    picked += _order(available(math), review, subtopic_plan)[: n - len(picked)]
     random.shuffle(picked)
     return picked[:n]

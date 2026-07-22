@@ -97,6 +97,7 @@ def _normalize(p):
     p.setdefault("sparks", 0)
     p.setdefault("stickers", {})
     p.setdefault("active_quest", None)
+    p.setdefault("subtopics", {})
     return p
 
 
@@ -327,7 +328,8 @@ def _finalize(p, questions, n, la_count):
             result.append(q)
     if len(result) < n:
         for q in bank.sample(n - len(result), la_count, mastered | used | blocked,
-                             off["review"]):
+                             off["review"],
+                             subtopic_plan=profile_mod.subtopic_plan(p)):
             if q["id"] not in used and q["id"] not in blocked:
                 used.add(q["id"])
                 result.append(q)
@@ -343,7 +345,8 @@ def _offline_raw(p, prefs, n, la_count):
         random.shuffle(extras)
         extras = extras[:1]
     off = p["offline"]
-    filler = bank.sample(n - len(extras), la_count, off["mastered"], off["review"])
+    filler = bank.sample(n - len(extras), la_count, off["mastered"], off["review"],
+                         subtopic_plan=profile_mod.subtopic_plan(p))
     return extras + filler
 
 
@@ -513,6 +516,7 @@ def refill_pool_in_background(p):
     weak = profile_mod.weak_categories(p)
     prefs = p.get("prefs") or {}
     difficulty = p.get("difficulty", 2)
+    subtopic_plan = profile_mod.subtopic_plan(p)
 
     def _worker():
         try:
@@ -525,7 +529,7 @@ def refill_pool_in_background(p):
                 try:
                     qs = ai.generate_questions(
                         la_count, math_count, weak, prefs=prefs, theme=theme,
-                        difficulty=difficulty,
+                        difficulty=difficulty, subtopic_plan=subtopic_plan,
                     )
                     _note_ai(True, "question generation succeeded")
                 except Exception as e:
@@ -826,7 +830,7 @@ def answer_question(quest, answer, timed_out=False, player=None):
             if is_boss:
                 p["boss_wins"] += 1
     if not is_expedition:  # expedition topics aren't MCA categories
-        profile_mod.record_answer(p, q["category"], correct)
+        profile_mod.record_answer(p, q["category"], correct, q.get("subtopic"))
     if q.get("id"):
         profile_mod.record_offline(p, q["id"], correct)
     save_player(p)

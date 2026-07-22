@@ -1,5 +1,6 @@
 """Player profile: XP, levels, streaks, badges, per-category accuracy."""
 import json
+import random
 import uuid
 from datetime import date, timedelta
 
@@ -40,6 +41,10 @@ def _default(name):
         # Adaptive challenge level 1-5; adjust_difficulty moves it after
         # each session based on the score.
         "difficulty": 2,
+        # Per-learner subtopic exposure (config.SUBTOPICS): how often each
+        # device/concept has been asked, so generation rotates them evenly.
+        # {category: {subtopic: {"answered": n, "correct": n}}}
+        "subtopics": {},
     }
 
 
@@ -52,6 +57,7 @@ def load():
         p.setdefault("offline", {"mastered": [], "review": []})
         p.setdefault("prefs", {})
         p.setdefault("difficulty", 2)
+        p.setdefault("subtopics", {})
         return p
     return None
 
@@ -92,10 +98,16 @@ def update_streak(profile):
     return True
 
 
-def record_answer(profile, category, correct):
+def record_answer(profile, category, correct, subtopic=None):
     profile["totals"]["answered"] += 1
     cat = profile["categories"][category]
     cat["answered"] += 1
+    if subtopic in config.SUBTOPICS.get(category, ()):
+        sub = (profile.setdefault("subtopics", {}).setdefault(category, {})
+               .setdefault(subtopic, {"answered": 0, "correct": 0}))
+        sub["answered"] += 1
+        if correct:
+            sub["correct"] += 1
     if correct:
         profile["totals"]["correct"] += 1
         cat["correct"] += 1
@@ -132,6 +144,22 @@ def adjust_difficulty(profile, correct, total):
         delta = -1
     profile["difficulty"] = d + delta
     return delta
+
+
+def subtopic_plan(profile):
+    """Per-category subtopic rotation for this learner: every subtopic from
+    config.SUBTOPICS, least-practiced first (ties shuffled so two learners —
+    or two sessions — don't march through the list in lockstep). Steers both
+    AI generation and bank sampling toward even coverage."""
+    seen = profile.get("subtopics") or {}
+    plan = {}
+    for category, subs in config.SUBTOPICS.items():
+        counts = seen.get(category) or {}
+        order = list(subs)
+        random.shuffle(order)
+        order.sort(key=lambda s: counts.get(s, {}).get("answered", 0))
+        plan[category] = order
+    return plan
 
 
 def weak_categories(profile, k=2):

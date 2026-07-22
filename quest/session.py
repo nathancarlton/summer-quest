@@ -20,6 +20,7 @@ def prefetch(p):
     pool.refill_in_background(
         la_count, math_count, profile_mod.weak_categories(p),
         p.get("prefs") or {}, difficulty=p.get("difficulty", 2),
+        subtopic_plan=profile_mod.subtopic_plan(p),
     )
 
 
@@ -42,7 +43,8 @@ def _finalize(p, prefs, questions, n, la_count):
         used.add(qid)
         result.append(q)
     if len(result) < n:  # dropped some — refill with fresh, unmastered bank Qs
-        for q in bank.sample(n - len(result), la_count, mastered | used, off["review"]):
+        for q in bank.sample(n - len(result), la_count, mastered | used, off["review"],
+                             subtopic_plan=profile_mod.subtopic_plan(p)):
             if q["id"] not in used:
                 used.add(q["id"])
                 result.append(q)
@@ -59,7 +61,8 @@ def _offline_raw(p, prefs, n, la_count):
         random.shuffle(extras)
         extras = extras[:1]
     off = p["offline"]
-    filler = bank.sample(n - len(extras), la_count, off["mastered"], off["review"])
+    filler = bank.sample(n - len(extras), la_count, off["mastered"], off["review"],
+                         subtopic_plan=profile_mod.subtopic_plan(p))
     return extras + filler
 
 
@@ -130,7 +133,7 @@ def run(p):
             p["xp"] += xp
             if is_boss:
                 p["boss_wins"] += 1
-        profile_mod.record_answer(p, q["category"], correct)
+        profile_mod.record_answer(p, q["category"], correct, q.get("subtopic"))
         # Track mastery for every question so a correct one never returns.
         if q.get("id"):
             profile_mod.record_offline(p, q["id"], correct)

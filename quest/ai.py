@@ -11,7 +11,7 @@ import threading
 
 import requests
 
-from . import config
+from . import bank, config
 
 TIMEOUT = 180
 BATCH_SIZE = 3  # questions per request — smaller batches run concurrently,
@@ -91,13 +91,15 @@ For any "reading" question, include a 3-5 sentence original passage in "passage"
 
 Each JSON object:
 {{"category": "vocabulary|grammar|reading|figurative_language|writing_mechanics", \
-"type": "mc"|"short", "question": "...", \
+"type": "mc"|"short", "subtopic": "see the subtopic rule, else null", \
+"question": "...", \
 "passage": "..." or null, "options": ["A...","B...","C...","D..."] or null, \
 "answer": "correct option letter or model short answer", \
 "explanation": "kid-friendly why"}}"""
 
 GEN_MATH_PROMPT = """Create {n} genuinely hard math_challenge word problems for \
-a strong math student: ratios, rates, percentages, pre-algebra, multi-step logic.
+a strong math student — the exact skills to cover come from the subtopic rule \
+at the end of this prompt.
 
 Set the problems loosely in this world: {theme} — but give each problem its \
 own fresh scenario and cast; never reuse the same animal, object, or person \
@@ -115,7 +117,8 @@ inconsistency while solving, FIX the problem and re-solve — never mention the 
 inconsistency or adjust the story to excuse it.
 
 Each must be type "mc" with exactly 4 options. Each JSON object:
-{{"category": "math_challenge", "type": "mc", "question": "...", \
+{{"category": "math_challenge", "type": "mc", \
+"subtopic": "see the subtopic rule", "question": "...", \
 "passage": null, "options": ["A...","B...","C...","D..."], \
 "answer": "correct option letter", "explanation": "kid-friendly worked solution"}}"""
 
@@ -279,6 +282,33 @@ def _favorites_line(prefs):
     )
 
 
+# Subtopic balancing: left unsteered, the model collapses onto the most
+# prototypical concepts (audits of the live pool found 19 of 20 figurative-
+# language questions were simile/metaphor). Each batch gets an explicit
+# rotation, least-practiced-first for THIS learner; offsetting it by how many
+# questions earlier batches consumed keeps concurrent batches from all
+# opening with the same subtopic.
+_TRACKED_LA = [c for c in config.SUBTOPICS if config.CATEGORIES.get(c) == "la"]
+_TRACKED_MATH = [c for c in config.SUBTOPICS if config.CATEGORIES.get(c) == "math"]
+
+
+def _subtopic_note(subtopic_plan, categories, offset):
+    lines = []
+    for cat in categories:
+        subs = (subtopic_plan or {}).get(cat) or config.SUBTOPICS.get(cat)
+        if not subs:
+            continue
+        rot = [subs[(offset + i) % len(subs)] for i in range(len(subs))]
+        lines.append(
+            f"\nSUBTOPIC RULE for {cat}: each {cat} question must drill exactly "
+            f"ONE of these subtopics, working through them in this order "
+            f"(earliest first — this learner has practiced those least): "
+            f"{', '.join(rot)}. Never give two questions in this set the same "
+            f'subtopic, and record your choice in the "subtopic" field.'
+        )
+    return "".join(lines)
+
+
 # Adaptive challenge: the level (profile['difficulty']) picks the note that
 # steers question difficulty in both generation prompts.
 DIFFICULTY_NOTES = {
@@ -295,13 +325,15 @@ DIFFICULTY_NOTES = {
 
 
 def generate_questions(la_count, math_count, weak_categories, prefs=None, theme=None,
-                       difficulty=None):
+                       difficulty=None, subtopic_plan=None):
     """Generate a full question set via several small concurrent requests.
 
     Batching keeps each call short so the reasoning model's think-time runs
     in parallel; a single 10-question call takes ~2.5 min, batched ~1 min.
     One shared `theme` threads through every batch for a coherent world;
-    `difficulty` (1-5) steers how hard the questions get.
+    `difficulty` (1-5) steers how hard the questions get; `subtopic_plan`
+    (profile.subtopic_plan) rotates tracked categories through their
+    least-practiced subtopics so coverage stays even per learner.
     Partial results are fine — the caller validates and falls back if short.
     """
     weak = ", ".join(weak_categories) if weak_categories else "none identified yet"
@@ -309,18 +341,21 @@ def generate_questions(la_count, math_count, weak_categories, prefs=None, theme=
     favorites = _favorites_line(prefs)
     level_note = "\n" + DIFFICULTY_NOTES.get(difficulty or 2, DIFFICULTY_NOTES[2])
     prompts = [GEN_LA_PROMPT.format(n=c, weak=weak, theme=theme, favorites=favorites)
-               + level_note
-               for c in _chunks(la_count, BATCH_SIZE)]
-    prompts += [GEN_MATH_PROMPT.format(n=c, theme=theme, favorites=favorites)
-                + level_note
-                for c in _chunks(math_count, BATCH_SIZE)]
+               + level_note + _subtopic_note(subtopic_plan, _TRACKED_LA, i)
+               for i, c in enumerate(_chunks(la_count, BATCH_SIZE))]
+    consumed = 0
+    for c in _chunks(math_count, BATCH_SIZE):
+        prompts.append(GEN_MATH_PROMPT.format(n=c, theme=theme, favorites=favorites)
+                       + level_note
+                       + _subtopic_note(subtopic_plan, _TRACKED_MATH, consumed))
+        consumed += c
 
     questions = []
     for result in _parallel_map(_safe_batch, prompts):
         questions.extend(result or [])
     if not questions:
         raise ValueError("AI returned no questions")
-    return verify_mc(questions)
+    return verify_mc([bank.tag_subtopic(q) for q in questions])
 
 
 MC_VERIFY_PROMPT = """You are auditing the answer keys of multiple-choice practice \
