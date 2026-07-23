@@ -11,6 +11,7 @@ Comes in two forms that share the same game engine:
 
 - **AI-generated daily quests** — vocabulary, grammar, reading comprehension (with passages), figurative language, writing mechanics, and multi-step math word problems
 - **Adaptive** — tracks per-category accuracy and tells the AI to emphasize weak areas; a challenge level (1–5) rises when a kid scores 90%+ and eases when they score 50% or below, keeping sessions in the productive ~7–8/10 zone
+- **Subtopic balancing** — categories in `config.SUBTOPICS` rotate evenly through their concepts *per learner*: figurative language cycles all seven devices (simile, metaphor, personification, hyperbole, idiom, onomatopoeia, alliteration) instead of collapsing onto simile/metaphor, and math cycles ratios, rates, percentages, mean, median, mode, range, percentile, pre-algebra, and multi-step logic. The profile tracks per-subtopic exposure; generation prompts and bank sampling both lead with what that learner has practiced least
 - **Personalized, privately** — favorites (color, dream destination, instrument, sport, song, weather, animal, food) get woven into questions; each badge earned unlocks a bonus prompt to add or refresh one. The catalog is deliberately impersonal — things, places, weather; never names of people — so profiles don't collect identifying details
 - **AI-graded written answers** — short-answer questions get generous, encouraging feedback
 - **Challenges & reports** — a learner who disputes a ruling can hit "⚖️ Challenge it" for an independent AI re-evaluation, or report any question to the game developers (see [Question quality](#question-quality-verification-before-a-learner-ever-sees-it) below)
@@ -19,6 +20,9 @@ Comes in two forms that share the same game engine:
 - **Expeditions** 🧭 — trivia side-quests across six worlds (Science Lab, Wild World, Body & Food, Money Matters, We the People, Map Masters) earning **Sparks ⚡** and collectible **stickers** — a separate economy from XP. AI-generated after the daily-quest pool fills, with a curated offline trivia bank so they always start instantly; safety topics are framed as safety knowledge, never instructions
 - **Question quality pipeline** — generated questions pass a confused-explanation filter and an **adversarial answer-key audit** (an independent AI pass re-solves every multiple-choice question) before earning a `verified` flag; the serve gate refuses to hand a learner anything unverified. If a bad one still slips through, the challenge button catches it and auto-reports it
 - **Family leaderboard** — everyone ranked by XP with levels, streaks, badges, and Sparks
+- **Post-quest standings** — every results screen ends with a compare-and-contrast moment: your rank, the real XP gap to the player just ahead (and behind), and who leads the board
+- **Combine-profiles offer** — a parent can queue a `merge_offer` on a player record (`{source_pid, bonus_xp}`); after their next quest — right below the standings — the kid sees an honest pitch to fold an old profile into this one (its real XP, a reunion bonus, the level they'd land on). Accepting merges XP, stats, badges, mastery, stickers, and history, then retires the old profile
+- **Family Phone** 📞 — a progress reward at Level 5: free-form voice calls between family players, about anything at all. WebRTC peer-to-peer audio (never touches the server); the backend only runs a WebSocket switchboard relaying ring/accept/decline between logged-in, unlocked players
 - **Looks** — four color themes (Sunset, Ocean, Forest, Midnight) and three fonts (Fredoka, Nunito, Inter), each remembered per device
 - **Progress tracking** — full profile + append-only session history, synced between the CLI and the web backend
 - **Offline-safe** — no API key or no internet? Falls back to a built-in bank of 165 curated questions (plus 36 expedition trivia); sync events queue and flush later
@@ -62,6 +66,7 @@ First run asks for the learner's name and creates their profile (one profile per
 | `QUESTIONS_PER_SESSION` | `10` | Session length |
 | `LA_RATIO` | `0.7` | Language arts share of each session |
 | `QUESTION_SECONDS` | `90` | Per-question time limit in the web app |
+| `VOICE_CHAT_MIN_LEVEL` | `5` | Level that unlocks the Family Phone |
 | `DATABASE_URL` | blank | Backend only: Postgres for durable storage (else local SQLite) |
 | `CORS_ORIGINS` | blank | Backend only: comma-separated allowed browser origins (blank = all) |
 
@@ -81,11 +86,13 @@ quest/            # shared game engine + the CLI
   ui.py           # rich-based terminal UI
 backend/app/      # FastAPI backend (imports quest/ directly — no duplication)
   main.py         # routes + CORS
-  engine.py       # quests, expeditions, resume, challenges, pools + serve gate
+  engine.py       # quests, expeditions, resume, challenges, pools + serve gate,
+                  # standings, profile merges
+  voice.py        # Family Phone signaling (WebSocket switchboard for WebRTC)
   storage.py      # SQLite locally, Postgres via DATABASE_URL in production
 frontend/         # React (Vite) app for Vercel
   src/screens/    # PickPlayer, Onboarding, Home, Quest, Summary, Stats,
-                  # Leaderboard, Topics (expeditions)
+                  # Leaderboard, Topics (expeditions), VoiceChat (Family Phone)
 scripts/          # one-shot deploy helpers + CLI-progress importer
 .github/workflows/ # push-to-deploy: calls the Render deploy hook
 render.yaml       # Render service definition (build + start commands, env vars)
@@ -159,7 +166,9 @@ The frontend reads `VITE_API_URL` (defaults to `http://localhost:8000`).
 | `POST /api/v1/quests/{id}/answer` | grade the next answer server-side (MiniMax grades written ones; server also enforces the per-question time limit) |
 | `POST /api/v1/quests/{id}/challenge` | dispute a wrong ruling — an independent AI appeals pass re-evaluates |
 | `POST /api/v1/quests/{id}/report` | flag a question for the game developers |
-| `POST /api/v1/quests/{id}/complete` | streak bonus, badges, difficulty adjustment, history |
+| `POST /api/v1/quests/{id}/complete` | streak bonus, badges, difficulty adjustment, history — plus family standings and any pending combine-profiles offer |
+| `POST /api/v1/players/{id}/merge` | accept a pending combine-profiles offer (owner-only) |
+| `WS /api/v1/voice/ws?token=…` | Family Phone signaling: roster presence + call/accept/decline/SDP relay (players at `VOICE_CHAT_MIN_LEVEL`+) |
 | `GET /api/v1/leaderboard` | all players ranked by XP |
 | `GET /api/v1/ai/status` | is MiniMax working? `?probe=true` fires a live test call |
 | `GET /api/v1/reports` / `DELETE /api/v1/reports` | flagged questions + auto-filed challenge wins (requires `SYNC_TOKEN` when set) |
