@@ -28,9 +28,10 @@ from pydantic import BaseModel, Field
 
 from quest import config
 
-from . import engine, security
+from . import engine, security, voice
 
 app = FastAPI(title="Summer Quest API", version="1.0.0")
+app.include_router(voice.router)
 
 # Lock this down once the Vercel URL exists, e.g.
 # CORS_ORIGINS=https://summer-quest.vercel.app,http://localhost:5173

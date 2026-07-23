@@ -795,6 +795,31 @@ textarea:focus {
   gap: 10px;
 }
 
+.phone-panel {
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.phone-status {
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.phone-locked,
+.phone-empty {
+  color: var(--muted);
+}
+
+.phone-notice {
+  color: var(--gold-ink);
+  font-weight: 600;
+}
+
 .diff-up {
   color: var(--good);
   font-weight: 600;

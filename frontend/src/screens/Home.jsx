@@ -31,7 +31,7 @@ export function Hud({ player }) {
   )
 }
 
-export default function Home({ player, active, onStart, onExpedition, onStats, onBoard, onSwitch }) {
+export default function Home({ player, active, onStart, onExpedition, onStats, onBoard, onPhone, onSwitch }) {
   const hasActive = active?.active
   return (
     <div className="shell center">
@@ -71,6 +71,12 @@ export default function Home({ player, active, onStart, onExpedition, onStats, o
               🏆 Leaderboard
             </button>
           </div>
+          <button className="btn big" onClick={onPhone}>
+            📞 Family Phone{' '}
+            <span className="muted">
+              {player.level.num >= 5 ? '— call the family!' : '— unlocks at Level 5 🔒'}
+            </span>
+          </button>
         </div>
       </div>
       <button className="link" onClick={onSwitch}>

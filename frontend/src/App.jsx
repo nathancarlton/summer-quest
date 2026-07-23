@@ -12,6 +12,7 @@ import Leaderboard from './screens/Leaderboard.jsx'
 import Topics from './screens/Topics.jsx'
 import Admin from './screens/Admin.jsx'
 import Favorites from './screens/Favorites.jsx'
+import VoiceChat from './screens/VoiceChat.jsx'
 
 const STORED_ID = 'sq_player_id'
 
@@ -219,6 +220,8 @@ export default function App() {
     return <Leaderboard player={player} onBack={() => setScreen('home')} />
   if (screen === 'topics')
     return <Topics onPick={startExpedition} onBack={() => setScreen('home')} />
+  if (screen === 'voice')
+    return <VoiceChat player={player} onBack={() => setScreen('home')} />
   return (
     <Home
       player={player}
@@ -227,6 +230,7 @@ export default function App() {
       onExpedition={() => setScreen('topics')}
       onStats={() => setScreen('stats')}
       onBoard={() => setScreen('board')}
+      onPhone={() => setScreen('voice')}
       onSwitch={switchPlayer}
     />
   )

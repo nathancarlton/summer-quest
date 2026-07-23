@@ -33,6 +33,10 @@ async function req(path, opts = {}) {
 // The kid's local calendar date — streaks follow their clock, not the server's.
 const localDate = () => new Date().toLocaleDateString('en-CA')
 
+// Signaling socket for the family voice chat (auth via the player token).
+export const voiceWsUrl = () =>
+  `${BASE.replace(/^http/, 'ws')}/api/v1/voice/ws?token=${encodeURIComponent(TOKEN)}`
+
 export const api = {
   aiStatus: (probe) => req(`/api/v1/ai/status${probe ? '?probe=true' : ''}`),
   leaderboard: () => req('/api/v1/leaderboard'),
