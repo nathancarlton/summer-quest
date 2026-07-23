@@ -16,7 +16,7 @@ Comes in two forms that share the same game engine:
 - **AI-graded written answers** — short-answer questions get generous, encouraging feedback
 - **Challenges & reports** — a learner who disputes a ruling can hit "⚖️ Challenge it" for an independent AI re-evaluation, or report any question to the game developers (see [Question quality](#question-quality-verification-before-a-learner-ever-sees-it) below)
 - **Gamification** — XP, 10 named levels, daily streaks with bonus XP, unlockable badges, and a double-XP **boss battle** at the end of each session (with a hype-building intro that recaps the run before the final showdown)
-- **Timed & rage-quit-proof (web)** — 90 seconds per question (`QUESTION_SECONDS`; 10 × 90s ≈ a 15-minute session) with a countdown and auto-timeout; sessions live server-side, so closing the browser mid-game changes nothing — the home screen offers exactly one button, "Finish your quest!", resuming at the first unanswered question with all previous answers locked in. No restart path exists, and expeditions can't be used as an escape hatch either
+- **Timed & rage-quit-proof (web)** — 120 seconds per question (`QUESTION_SECONDS`; 10 × 120s ≈ a 20-minute session ceiling) with a countdown and auto-timeout; sessions live server-side, so closing the browser mid-game changes nothing — the home screen offers exactly one button, "Finish your quest!", resuming at the first unanswered question with all previous answers locked in. No restart path exists, and expeditions can't be used as an escape hatch either
 - **Expeditions** 🧭 — trivia side-quests across six worlds (Science Lab, Wild World, Body & Food, Money Matters, We the People, Map Masters) earning **Sparks ⚡** and collectible **stickers** — a separate economy from XP. AI-generated after the daily-quest pool fills, with a curated offline trivia bank so they always start instantly; safety topics are framed as safety knowledge, never instructions
 - **Question quality pipeline** — generated questions pass a confused-explanation filter and an **adversarial answer-key audit** (an independent AI pass re-solves every multiple-choice question) before earning a `verified` flag; the serve gate refuses to hand a learner anything unverified. If a bad one still slips through, the challenge button catches it and auto-reports it
 - **Family leaderboard** — everyone ranked by XP with levels, streaks, badges, and Sparks
@@ -65,7 +65,7 @@ First run asks for the learner's name and creates their profile (one profile per
 | `SYNC_TOKEN` | blank | Bearer token for the backend (also protects `GET /api/v1/reports`) |
 | `QUESTIONS_PER_SESSION` | `10` | Session length |
 | `LA_RATIO` | `0.7` | Language arts share of each session |
-| `QUESTION_SECONDS` | `90` | Per-question time limit in the web app |
+| `QUESTION_SECONDS` | `120` | Per-question time limit in the web app |
 | `VOICE_CHAT_MIN_LEVEL` | `5` | Level that unlocks the Family Phone |
 | `DATABASE_URL` | blank | Backend only: Postgres for durable storage (else local SQLite) |
 | `CORS_ORIGINS` | blank | Backend only: comma-separated allowed browser origins (blank = all) |
