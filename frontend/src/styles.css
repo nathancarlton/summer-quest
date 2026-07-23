@@ -773,6 +773,28 @@ textarea:focus {
   font-weight: 600;
 }
 
+.standings {
+  background: var(--surface);
+  border: 2px solid var(--gold-border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.merge-offer {
+  background: var(--gold-bg);
+  border: 2px dashed var(--gold-border);
+  border-radius: 14px;
+  padding: 14px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .diff-up {
   color: var(--good);
   font-weight: 600;

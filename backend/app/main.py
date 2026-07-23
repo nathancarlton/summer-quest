@@ -205,6 +205,19 @@ def set_secret(pid: str, body: SecretBody,
     return {"token": engine.issue_token(p), "player": engine.public_player(p)}
 
 
+@app.post("/api/v1/players/{pid}/merge")
+def merge_profiles(pid: str, x_player_token: str = Header(default="")):
+    """Accept a pending combine-profiles offer (set on the player record by
+    a parent). Only the logged-in owner of the profile can accept."""
+    tp = engine.player_for_token(x_player_token)
+    if not tp or tp["id"] != pid:
+        raise HTTPException(401, "login required")
+    try:
+        return engine.accept_merge(tp)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
 @app.post("/api/v1/players/{pid}/lockout",
           dependencies=[Depends(security.rate_limit("lockout", 3, 3600))])
 def lockout(pid: str):

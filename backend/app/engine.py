@@ -143,6 +143,7 @@ def public_player(p):
     p["has_secret"] = bool(p.pop("secret_hash", None))
     p.pop("secret_hint", None)
     p.pop("auth_gen", None)
+    p.pop("merge_offer", None)  # surfaces only via the quest-complete payload
     quest = active_quest(p)
     p["active_info"] = (
         {"active": True, "kind": quest.get("kind", "quest"),
@@ -857,6 +858,111 @@ def answer_question(quest, answer, timed_out=False, player=None):
     }
 
 
+def _standings_for(p):
+    """Post-quest leaderboard context: this player's rank plus the XP gaps to
+    the players just ahead and just behind — the raw material for the results
+    screen's compare-and-contrast moment."""
+    rows = leaderboard()
+    me = next((i for i, r in enumerate(rows) if r["id"] == p["id"]), None)
+    if me is None:
+        return None
+    slim = lambda r: {"name": r["name"], "xp": r["xp"],
+                      "level_num": r["level_num"], "level_title": r["level_title"]}
+    return {
+        "rank": me + 1,
+        "of": len(rows),
+        "me": slim(rows[me]),
+        "ahead": slim(rows[me - 1]) if me > 0 else None,
+        "behind": slim(rows[me + 1]) if me + 1 < len(rows) else None,
+        "leader": slim(rows[0]) if me > 0 else None,
+    }
+
+
+def merge_offer_payload(p):
+    """A pending combine-profiles offer (set on the player record by a
+    parent), enriched with what accepting would mean — or None. Everything
+    shown is literally true: the old profile, its XP, the bonus, and the
+    level the combined profile would reach."""
+    offer = p.get("merge_offer") or {}
+    src = get_player(offer.get("source_pid", ""))
+    if not src:
+        return None
+    bonus = int(offer.get("bonus_xp", 0))
+    src_num, src_title, _ = profile_mod.level_info(src["xp"])
+    merged_xp = p["xp"] + src["xp"] + bonus
+    merged_num, merged_title, _ = profile_mod.level_info(merged_xp)
+    return {
+        "message": offer.get("message")
+        or "We noticed another profile that looks like yours. Combine them?",
+        "source_name": src["name"],
+        "source_xp": src["xp"],
+        "source_level": src_num,
+        "source_level_title": src_title,
+        "bonus_xp": bonus,
+        "merged_xp": merged_xp,
+        "merged_level": merged_num,
+        "merged_level_title": merged_title,
+    }
+
+
+def accept_merge(p):
+    """Fold the offered old profile into this one — XP (plus the reunion
+    bonus), per-category and per-subtopic stats, badges, mastery, stickers,
+    history — then retire the old profile and its queues."""
+    offer = p.get("merge_offer") or {}
+    src = get_player(offer.get("source_pid", ""))
+    if not src:
+        raise ValueError("no profile to combine")
+    src = _normalize(src)
+    p = _normalize(p)
+    bonus = int(offer.get("bonus_xp", 0))
+
+    p["xp"] += src["xp"] + bonus
+    for k, v in src["totals"].items():
+        p["totals"][k] = p["totals"].get(k, 0) + v
+    for cat, stats in src["categories"].items():
+        mine = p["categories"].setdefault(cat, {"answered": 0, "correct": 0})
+        mine["answered"] += stats.get("answered", 0)
+        mine["correct"] += stats.get("correct", 0)
+    for cat, subs in src["subtopics"].items():
+        mine = p.setdefault("subtopics", {}).setdefault(cat, {})
+        for sub, stats in subs.items():
+            m = mine.setdefault(sub, {"answered": 0, "correct": 0})
+            m["answered"] += stats.get("answered", 0)
+            m["correct"] += stats.get("correct", 0)
+    for b in src["badges"]:
+        if b not in p["badges"]:
+            p["badges"].append(b)
+    mine, theirs = p["offline"], src["offline"]
+    mine["mastered"] += [q for q in theirs["mastered"]
+                         if q not in mine["mastered"]]
+    mine["review"] += [q for q in theirs["review"]
+                       if q not in mine["review"] and q not in mine["mastered"]]
+    p["boss_wins"] = p.get("boss_wins", 0) + src.get("boss_wins", 0)
+    p["sessions_completed"] += src["sessions_completed"]
+    p["streak"] = max(p.get("streak", 0), src.get("streak", 0))
+    p["sparks"] = p.get("sparks", 0) + src.get("sparks", 0)
+    for topic, n in src["stickers"].items():
+        p["stickers"][topic] = p["stickers"].get(topic, 0) + n
+    for k, v in src["prefs"].items():
+        p["prefs"].setdefault(k, v)
+    p.pop("merge_offer", None)
+    save_player(p)
+
+    # The old profile's story joins this player's history, oldest first.
+    old_history = get_history(src["id"])
+    if old_history:
+        merged = sorted(old_history + get_history(p["id"]),
+                        key=lambda h: h.get("timestamp") or "")
+        storage.set_json(_history_key(p["id"]), merged)
+    for key in (_player_key(src["id"]), _history_key(src["id"]),
+                _pool_key(src["id"]), _expool_key(src["id"])):
+        storage.store.delete(key)
+
+    return {"restored_xp": src["xp"], "bonus_xp": bonus,
+            "player": public_player(p)}
+
+
 def complete_quest(quest, player=None):
     """Streak bonus, badges, history — then the quest record is deleted."""
     if len(quest["results"]) < len(quest["questions"]):
@@ -906,6 +1012,10 @@ def complete_quest(quest, player=None):
         "difficulty": p["difficulty"],
         "difficulty_delta": difficulty_delta,
         "player": public_player(p),
+        # Post-quest compare-and-contrast against the family board, and (if a
+        # parent queued one) the combine-profiles offer — shown after it.
+        "standings": _standings_for(p),
+        "merge_offer": merge_offer_payload(p),
     }
 
 

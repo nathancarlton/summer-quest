@@ -84,6 +84,7 @@ export const api = {
     }),
   updatePrefs: (id, prefs) =>
     req(`/api/v1/players/${id}/prefs`, { method: 'POST', body: JSON.stringify({ prefs }) }),
+  mergeProfiles: (id) => req(`/api/v1/players/${id}/merge`, { method: 'POST' }),
 }
 
 // Parent Zone: authenticated with the backend's SYNC_TOKEN as the admin key.

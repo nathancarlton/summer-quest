@@ -61,6 +61,106 @@ function BadgeBonus({ player }) {
   )
 }
 
+// Post-quest compare-and-contrast: where you sit on the family board and the
+// real XP gaps to the players just ahead and behind.
+function Standings({ standings }) {
+  if (!standings || standings.of < 2) return null
+  const { rank, of, me, ahead, behind, leader } = standings
+  return (
+    <div className="standings">
+      <div className="badge-title">🏆 FAMILY STANDINGS</div>
+      <p>
+        You're <strong>#{rank} of {of}</strong> with {me.xp} XP
+        (Level {me.level_num} — {me.level_title}).
+      </p>
+      {ahead && (
+        <p>
+          {ahead.name} is <strong>{ahead.xp - me.xp} XP ahead</strong> of you
+          at Level {ahead.level_num}. Every quest closes the gap!
+        </p>
+      )}
+      {leader && leader.name !== (ahead && ahead.name) && (
+        <p>
+          {leader.name} leads the board at {leader.xp} XP
+          (Level {leader.level_num} — {leader.level_title}).
+        </p>
+      )}
+      {behind && (
+        <p>
+          You're {me.xp - behind.xp} XP ahead of {behind.name} — keep your
+          streak alive to stay there.
+        </p>
+      )}
+      {rank === 1 && <p>You lead the whole board — defend that crown! 👑</p>}
+    </div>
+  )
+}
+
+// A parent-queued offer to fold an old profile into this one. Everything
+// shown is true: the old profile's XP, the reunion bonus, and the level the
+// combined profile lands on. Rendered BELOW the standings on purpose.
+function MergeOffer({ playerId, offer }) {
+  const [state, setState] = useState('ask') // ask -> merging -> done | dismissed
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState('')
+
+  if (!offer || state === 'dismissed') return null
+  if (state === 'done' && result)
+    return (
+      <div className="merge-offer">
+        <div className="badge-title">🎉 PROFILES COMBINED!</div>
+        <p>
+          +{result.restored_xp} XP restored, +{result.bonus_xp} reunion bonus —
+          you're now <strong>Level {result.player.level.num} —{' '}
+          {result.player.level.title}</strong> with {result.player.xp} XP!
+        </p>
+      </div>
+    )
+
+  const combine = async () => {
+    setState('merging')
+    setError('')
+    try {
+      setResult(await api.mergeProfiles(playerId))
+      setState('done')
+    } catch (err) {
+      setError(err.message)
+      setState('ask')
+    }
+  }
+
+  return (
+    <div className="merge-offer">
+      <div className="badge-title">👀 WAIT A SECOND…</div>
+      <p>{offer.message}</p>
+      <p>
+        "{offer.source_name}" has <strong>{offer.source_xp} XP</strong> saved up
+        (Level {offer.source_level} — {offer.source_level_title}). Combine, and
+        all of it comes home — <strong>plus a +{offer.bonus_xp} XP reunion
+        bonus</strong>. You'd jump to{' '}
+        <strong>
+          Level {offer.merged_level} — {offer.merged_level_title}
+        </strong>{' '}
+        with {offer.merged_xp} XP!
+      </p>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button type="button" className="btn ghost" onClick={() => setState('dismissed')}>
+          Not now
+        </button>
+        <button
+          type="button"
+          className="btn primary grow"
+          onClick={combine}
+          disabled={state === 'merging'}
+        >
+          {state === 'merging' ? 'Combining…' : 'Combine them! ⚡'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ui.session_summary: score, XP, streak bonus, newly unlocked badges.
 export default function Summary({ summary, onHome }) {
   if (summary.kind === 'expedition') {
@@ -141,6 +241,8 @@ export default function Summary({ summary, onHome }) {
           </div>
         ))}
         {summary.new_badges.length > 0 && <BadgeBonus player={summary.player} />}
+        <Standings standings={summary.standings} />
+        <MergeOffer playerId={summary.player.id} offer={summary.merge_offer} />
         <button className="btn primary big" onClick={onHome}>
           Back to camp 🏕️
         </button>
