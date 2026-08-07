@@ -22,6 +22,8 @@ on:
       - "Procfile"
       - "render.yaml"
       - ".python-version"
+  # Manual trigger: GitHub → Actions → this workflow → "Run workflow".
+  workflow_dispatch:
 
 jobs:
   trigger-render:
