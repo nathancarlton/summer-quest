@@ -340,6 +340,69 @@ def start_expedition(pid: str,
         raise HTTPException(422, "unknown expedition topic")
 
 
+# ─── Reading Room ────────────────────────────────────────────────────────────
+
+@app.get("/api/v1/players/{pid}/books")
+def list_books(pid: str, x_player_token: str = Header(default="")):
+    """The bookshelf: catalog + this player's per-book progress. Chapter
+    counts appear once a book has been fetched (first open) — showing null
+    beforehand avoids downloading all eight books just to draw the shelf."""
+    from . import books
+    p = _authed_player(pid, x_player_token)
+    out = []
+    for key, info in books.BOOKS.items():
+        meta = books.get_meta(key)
+        prog = engine.reading_progress(p, key)
+        out.append({
+            "key": key, "title": info["title"], "author": info["author"],
+            "emoji": info["emoji"],
+            "chapters": meta["chapters"] if meta else None,
+            "finished_through": prog["finished"],
+            "quizzed_count": len(prog["quizzed"]),
+        })
+    return out
+
+
+@app.get("/api/v1/players/{pid}/book/{book}/chapter/{chapter}",
+         dependencies=[Depends(security.rate_limit("chapter", 120, 3600))])
+def read_chapter(pid: str, book: str, chapter: int,
+                 x_player_token: str = Header(default="")):
+    p = _authed_player(pid, x_player_token)
+    try:
+        return engine.open_chapter(p, book, chapter)
+    except KeyError:
+        raise HTTPException(404, "unknown book")
+    except IndexError:
+        raise HTTPException(404, "no such chapter")
+    except Exception as e:
+        raise HTTPException(502, f"couldn't fetch the book right now: {e}")
+
+
+@app.post("/api/v1/players/{pid}/book/{book}/chapter/{chapter}/finish")
+def finish_chapter(pid: str, book: str, chapter: int,
+                   x_player_token: str = Header(default="")):
+    p = _authed_player(pid, x_player_token)
+    if book not in engine.books.BOOKS:
+        raise HTTPException(404, "unknown book")
+    return engine.finish_chapter(p, book, chapter)
+
+
+@app.post("/api/v1/players/{pid}/book/{book}/chapter/{chapter}/quiz",
+          dependencies=[Depends(security.rate_limit("start", 30, 3600))])
+def start_reading_quiz(pid: str, book: str, chapter: int,
+                       x_player_token: str = Header(default="")):
+    p = _authed_player(pid, x_player_token)
+    try:
+        return engine.start_reading_quiz(p, book, chapter)
+    except KeyError:
+        raise HTTPException(404, "unknown book")
+    except engine.QuizNotReady:
+        raise HTTPException(
+            425, "The quiz for this chapter is still being written — "
+                 "keep reading and try again in a minute!"
+        )
+
+
 class AnswerBody(BaseModel):
     answer: str = Field(default="", max_length=2000)
     timed_out: bool = False

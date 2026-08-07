@@ -163,6 +163,35 @@ function MergeOffer({ playerId, offer }) {
 
 // ui.session_summary: score, XP, streak bonus, newly unlocked badges.
 export default function Summary({ summary, onHome }) {
+  if (summary.kind === 'reading') {
+    return (
+      <div className="shell center">
+        <div className="card">
+          <h2>
+            {summary.book.emoji} Chapter {summary.book.chapter + 1} Quiz Complete!
+          </h2>
+          <p className="muted">{summary.book.title}</p>
+          <table className="summary-table">
+            <tbody>
+              <tr>
+                <td>Score</td>
+                <td>
+                  {summary.score}/{summary.total}
+                </td>
+              </tr>
+              <tr>
+                <td>XP earned</td>
+                <td>+{summary.xp_gained}</td>
+              </tr>
+            </tbody>
+          </table>
+          <button className="btn primary big" onClick={onHome}>
+            Back to camp 🏕️
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (summary.kind === 'expedition') {
     const s = summary.sticker
     return (

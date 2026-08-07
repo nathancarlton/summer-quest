@@ -143,6 +143,31 @@ Each must be type "mc" with exactly 4 options. Each JSON object:
 "explanation": "kid-friendly why, with the wow factor"}}"""
 
 
+READING_QUIZ_PROMPT = """A student just finished reading a chapter of "{title}" \
+by {author}. Create exactly {n} multiple-choice comprehension questions about \
+THIS chapter only — what happened, why characters did what they did, and what a \
+word or phrase means in context. Use ONLY facts from the chapter text below; \
+never spoil events beyond it.
+NO LENGTH TELLS: keep all four options similar in length; often make a wrong \
+option the most detailed-sounding one.
+
+Each must be type "mc" with exactly 4 options. Each JSON object:
+{{"category": "reading", "type": "mc", "question": "...", "passage": null, \
+"options": ["A...","B...","C...","D..."], "answer": "correct option letter", \
+"explanation": "kid-friendly why, pointing to the moment in the chapter"}}
+
+Chapter text:
+{text}"""
+
+
+def generate_reading_quiz(title, author, chapter_text, n=3):
+    """Comprehension questions grounded in the exact chapter the kid read.
+    Runs through the same confusion + length-tell filters as everything else."""
+    return _gen_batch(READING_QUIZ_PROMPT.format(
+        title=title, author=author, n=n, text=chapter_text[:24000]
+    ))
+
+
 def generate_expedition(topic_key, topic_label, topic_desc, n=5):
     """Generate one expedition's trivia set — a single small batch, then the
     same adversarial answer-key audit the daily quests get."""

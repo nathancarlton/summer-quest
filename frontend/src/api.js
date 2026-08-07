@@ -89,6 +89,12 @@ export const api = {
   updatePrefs: (id, prefs) =>
     req(`/api/v1/players/${id}/prefs`, { method: 'POST', body: JSON.stringify({ prefs }) }),
   mergeProfiles: (id) => req(`/api/v1/players/${id}/merge`, { method: 'POST' }),
+  books: (id) => req(`/api/v1/players/${id}/books`),
+  chapter: (id, book, ch) => req(`/api/v1/players/${id}/book/${book}/chapter/${ch}`),
+  finishChapter: (id, book, ch) =>
+    req(`/api/v1/players/${id}/book/${book}/chapter/${ch}/finish`, { method: 'POST' }),
+  startReadingQuiz: (id, book, ch) =>
+    req(`/api/v1/players/${id}/book/${book}/chapter/${ch}/quiz`, { method: 'POST' }),
 }
 
 // Parent Zone: authenticated with the backend's SYNC_TOKEN as the admin key.

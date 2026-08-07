@@ -136,7 +136,9 @@ export default function Quest({ quest, onFinish }) {
 
   const header = isExpedition
     ? `${quest.topic.emoji} ${quest.topic.name}`
-    : CATEGORY_LABELS[q.category] || q.category
+    : quest.kind === 'reading'
+      ? `${quest.book.emoji} ${quest.book.title} · Ch ${quest.book.chapter + 1}`
+      : CATEGORY_LABELS[q.category] || q.category
 
   const showBossIntro = isBoss && !bossFaced && !result
 

@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from quest import ai, bank, config, expeditions, profile as profile_mod
 
-from . import security, storage
+from . import books, security, storage
 
 POOL_TARGET = 2    # ready-made themed quest sessions to keep queued per player
 EXPOOL_TARGET = 2  # ready-made expeditions queued per player (brewed AFTER quests)
@@ -98,6 +98,8 @@ def _normalize(p):
     p.setdefault("stickers", {})
     p.setdefault("active_quest", None)
     p.setdefault("subtopics", {})
+    # Reading Room: per book, chapters finished + which chapters were quizzed.
+    p.setdefault("reading", {})
     return p
 
 
@@ -722,6 +724,10 @@ def _resume_payload(quest):
     if quest.get("kind") == "expedition":
         label, emoji, _ = expeditions.TOPICS[quest["topic"]]
         out["topic"] = {"key": quest["topic"], "name": label, "emoji": emoji}
+    if quest.get("kind") == "reading":
+        info = books.BOOKS[quest["book"]]
+        out["book"] = {"key": quest["book"], "title": info["title"],
+                       "emoji": info["emoji"], "chapter": quest["chapter"]}
     return out
 
 
@@ -801,7 +807,9 @@ def answer_question(quest, answer, timed_out=False, player=None):
         raise IndexError("quest already complete")
     q = quest["questions"][i]
     is_expedition = quest.get("kind") == "expedition"
-    is_boss = not is_expedition and i == len(quest["questions"]) - 1
+    # Only daily quests have a boss; expeditions and reading quizzes don't.
+    is_boss = (quest.get("kind", "quest") == "quest"
+               and i == len(quest["questions"]) - 1)
 
     if not timed_out and quest.get("q_started_at"):
         elapsed = (
@@ -969,6 +977,8 @@ def complete_quest(quest, player=None):
         raise ValueError("quest still has unanswered questions")
     if quest.get("kind") == "expedition":
         return _complete_expedition(quest, player)
+    if quest.get("kind") == "reading":
+        return _complete_reading(quest, player)
     p = player or get_player(quest["player_id"])
 
     xp_gained = quest["xp_gained"]
@@ -1054,6 +1064,181 @@ def _complete_expedition(quest, player=None):
     }
 
 
+# ─── Reading Room: progress, chapter quizzes ────────────────────────────────
+
+READING_QUIZ_SIZE = 3
+
+
+def _quiz_key(book, chapter):
+    return f"bookquiz:{book}:{chapter}"
+
+
+_brewing_quizzes = set()
+_brew_lock = threading.Lock()
+
+
+def brew_reading_quiz_in_background(book, chapter):
+    """Generate the chapter's quiz while the kid is reading — one quiz per
+    chapter, cached and shared by the whole family. No-op if cached,
+    already brewing, or no API key."""
+    if not config.MINIMAX_API_KEY:
+        return
+    key = _quiz_key(book, chapter)
+    with _brew_lock:
+        if key in _brewing_quizzes or storage.get_json(key):
+            return
+        _brewing_quizzes.add(key)
+
+    def _worker():
+        try:
+            ch, _total = books.get_chapter(book, chapter)
+            info = books.BOOKS[book]
+            try:
+                qs = ai.generate_reading_quiz(
+                    info["title"], info["author"], ch["text"], n=READING_QUIZ_SIZE
+                )
+                _note_ai(True, "reading quiz generation succeeded")
+            except Exception as e:
+                _note_ai(False, f"reading quiz generation failed: {e}")
+                return
+            qs = [q for q in qs if bank.valid_question(q)]
+            if len(qs) >= 2:
+                storage.set_json(key, qs[:READING_QUIZ_SIZE])
+        finally:
+            with _brew_lock:
+                _brewing_quizzes.discard(key)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def reading_progress(p, book):
+    return p.get("reading", {}).get(book, {"finished": 0, "quizzed": []})
+
+
+def open_chapter(p, book, chapter):
+    """Serve a chapter and kick off its quiz brew. The reader's front door."""
+    ch, total = books.get_chapter(book, chapter)
+    brew_reading_quiz_in_background(book, chapter)
+    prog = reading_progress(p, book)
+    return {
+        "book": book,
+        "index": chapter,
+        "chapters": total,
+        "chapter_title": ch["title"],
+        "text": ch["text"],
+        "finished_through": prog["finished"],
+        "quizzed": chapter in prog["quizzed"],
+        "quiz_ready": bool(storage.get_json(_quiz_key(book, chapter))),
+    }
+
+
+def finish_chapter(p, book, chapter):
+    """Mark reading progress (no XP here — the quiz is where XP lives, so
+    clicking 'next' through a book earns nothing)."""
+    reading = p.setdefault("reading", {})
+    prog = reading.setdefault(book, {"finished": 0, "quizzed": []})
+    prog["finished"] = max(prog["finished"], chapter + 1)
+    save_player(p)
+    return {"finished_through": prog["finished"],
+            "quiz_ready": bool(storage.get_json(_quiz_key(book, chapter)))}
+
+
+class QuizNotReady(Exception):
+    pass
+
+
+def start_reading_quiz(p, book, chapter):
+    """A 3-question comprehension quiz on the exact chapter just read.
+    Same session machinery as quests: resume-forced, timed, challengeable."""
+    active = active_quest(p)
+    if active:
+        return _resume_payload(active)
+    if book not in books.BOOKS:
+        raise KeyError(book)
+    qs = storage.get_json(_quiz_key(book, chapter))
+    if not qs:
+        brew_reading_quiz_in_background(book, chapter)
+        raise QuizNotReady()
+    blocked = blocked_ids()
+    prepared = []
+    for q in qs:
+        q = dict(q)
+        q["id"] = q.get("id") or bank.question_id(q)
+        if q["id"] not in blocked:
+            prepared.append(bank.ensure_option_letters(q))
+    if len(prepared) < 2:
+        storage.store.delete(_quiz_key(book, chapter))  # rotten quiz — re-brew
+        brew_reading_quiz_in_background(book, chapter)
+        raise QuizNotReady()
+
+    info = books.BOOKS[book]
+    now = datetime.now(timezone.utc).isoformat()
+    quest = {
+        "id": str(uuid.uuid4()),
+        "kind": "reading",
+        "book": book,
+        "chapter": chapter,
+        "player_id": p["id"],
+        "questions": prepared,
+        "results": [],
+        "xp_gained": 0,
+        "correct_count": 0,
+        "streak_continued": False,
+        "started_at": now,
+        "q_started_at": now,
+    }
+    p["active_quest"] = quest["id"]
+    save_player(p)
+    storage.set_json(_quest_key(quest["id"]), quest)
+    return {
+        "quest_id": quest["id"],
+        "kind": "reading",
+        "book": {"key": book, "title": info["title"], "emoji": info["emoji"],
+                 "chapter": chapter},
+        "questions": [sanitize_question(q) for q in prepared],
+        "answered": 0,
+        "correct_so_far": 0,
+        "resumed": False,
+        "ai_graded": bool(config.MINIMAX_API_KEY),
+        "question_seconds": config.QUESTION_SECONDS,
+    }
+
+
+def _complete_reading(quest, player=None):
+    p = player or get_player(quest["player_id"])
+    book, chapter = quest["book"], quest["chapter"]
+    reading = p.setdefault("reading", {})
+    prog = reading.setdefault(book, {"finished": 0, "quizzed": []})
+    if chapter not in prog["quizzed"]:
+        prog["quizzed"].append(chapter)
+    prog["finished"] = max(prog["finished"], chapter + 1)
+    p["active_quest"] = None
+    save_player(p)
+
+    info = books.BOOKS[book]
+    append_history(p["id"], {
+        "kind": "reading",
+        "book": book,
+        "chapter": chapter,
+        "player_id": p["id"],
+        "player_name": p["name"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "score": quest["correct_count"],
+        "total": len(quest["questions"]),
+        "xp_gained": quest["xp_gained"],
+    })
+    storage.store.delete(_quest_key(quest["id"]))
+    return {
+        "kind": "reading",
+        "score": quest["correct_count"],
+        "total": len(quest["questions"]),
+        "xp_gained": quest["xp_gained"],
+        "book": {"key": book, "title": info["title"], "emoji": info["emoji"],
+                 "chapter": chapter},
+        "player": public_player(p),
+    }
+
+
 # ─── Challenges (appeals) + issue reports ───────────────────────────────────
 
 REPORTS_KEY = "reports"
@@ -1134,7 +1319,8 @@ def challenge_answer(quest, index, player=None):
     if overturned:
         entry["correct"] = True
         is_expedition = quest.get("kind") == "expedition"
-        is_boss = not is_expedition and index == len(quest["questions"]) - 1
+        is_boss = (quest.get("kind", "quest") == "quest"
+                   and index == len(quest["questions"]) - 1)
         if is_expedition:
             xp_awarded = SPARKS_PER_CORRECT
             p["sparks"] = p.get("sparks", 0) + xp_awarded

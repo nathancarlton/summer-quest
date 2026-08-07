@@ -31,7 +31,7 @@ export function Hud({ player }) {
   )
 }
 
-export default function Home({ player, active, onStart, onExpedition, onStats, onBoard, onPhone, onSwitch }) {
+export default function Home({ player, active, onStart, onExpedition, onLibrary, onStats, onBoard, onPhone, onSwitch }) {
   const hasActive = active?.active
   return (
     <div className="shell center">
@@ -58,9 +58,14 @@ export default function Home({ player, active, onStart, onExpedition, onStats, o
               <button className="btn primary big" onClick={onStart}>
                 ⚔️ Start today's quest
               </button>
-              <button className="btn big" onClick={onExpedition}>
-                🧭 Expedition <span className="muted">— trivia for ⚡ & stickers</span>
-              </button>
+              <div className="row">
+                <button className="btn grow" onClick={onExpedition}>
+                  🧭 Expedition
+                </button>
+                <button className="btn grow" onClick={onLibrary}>
+                  📖 Reading Room
+                </button>
+              </div>
             </>
           )}
           <div className="row">

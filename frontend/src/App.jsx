@@ -13,6 +13,8 @@ import Topics from './screens/Topics.jsx'
 import Admin from './screens/Admin.jsx'
 import Favorites from './screens/Favorites.jsx'
 import VoiceChat from './screens/VoiceChat.jsx'
+import Library from './screens/Library.jsx'
+import Reader from './screens/Reader.jsx'
 
 const STORED_ID = 'sq_player_id'
 
@@ -26,6 +28,7 @@ export default function App() {
   const [quest, setQuest] = useState(null)
   const [summary, setSummary] = useState(null)
   const [active, setActive] = useState(null) // unfinished session info
+  const [readerPos, setReaderPos] = useState(null) // {book, chapter}
   const [error, setError] = useState('')
 
   const refreshActive = (p) => {
@@ -222,12 +225,35 @@ export default function App() {
     return <Topics onPick={startExpedition} onBack={() => setScreen('home')} />
   if (screen === 'voice')
     return <VoiceChat player={player} onBack={() => setScreen('home')} />
+  if (screen === 'library')
+    return (
+      <Library
+        player={player}
+        onOpen={(book, chapter) => {
+          setReaderPos({ book, chapter })
+          setScreen('reader')
+        }}
+        onBack={goHome}
+      />
+    )
+  if (screen === 'reader')
+    return (
+      <Reader
+        player={player}
+        book={readerPos.book}
+        chapter={readerPos.chapter}
+        onNavigate={(chapter) => setReaderPos({ ...readerPos, chapter })}
+        onQuiz={(resp) => enterSession(resp)}
+        onBack={() => setScreen('library')}
+      />
+    )
   return (
     <Home
       player={player}
       active={active}
       onStart={startQuest}
       onExpedition={() => setScreen('topics')}
+      onLibrary={() => setScreen('library')}
       onStats={() => setScreen('stats')}
       onBoard={() => setScreen('board')}
       onPhone={() => setScreen('voice')}
