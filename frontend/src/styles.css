@@ -951,8 +951,21 @@ textarea:focus {
 .reader-text {
   text-align: left;
   line-height: 1.75;
-  white-space: pre-wrap;
   font-size: 1.02rem;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.reader-para {
+  margin: 0;
+}
+
+.reader-heading {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 10px 0 0;
+  text-align: center;
 }
 
 /* ─── Parent Zone reports ─── */

@@ -42,7 +42,7 @@ BOOKS = {
 
 # Bump to invalidate every cached book and re-parse on next open (the meta
 # record carries this; a mismatch is treated as a cache miss).
-PARSER_VERSION = 2
+PARSER_VERSION = 3
 
 _fetch_locks = {}
 _locks_guard = threading.Lock()
@@ -68,10 +68,18 @@ def _strip_gutenberg_boilerplate(text):
 
 # Chapter headings across these eight books: "CHAPTER I.", "Chapter 1",
 # "ADVENTURE I.", or a bare roman numeral line like "I. A SCANDAL IN BOHEMIA".
+# The bare-numeral form forbids dots in the title tail so an initials
+# signature like "L.F.B." (which is all roman-numeral letters!) can't match.
 _HEADING_RE = re.compile(
     r"^(?:(?:CHAPTER|Chapter|ADVENTURE|Adventure|STORY|Story)\s+[IVXLCivxlc\d]+\.?[^\n]{0,80}"
-    r"|[IVXLC]+\.\s{0,3}[A-Z][^\n]{0,80})$",
+    r"|[IVXLC]+\.\s{0,3}[A-Z][A-Za-z0-9'’&,;:\- ]{2,78})$",
     re.M,
+)
+
+# Looser pattern for scrubbing table-of-contents listings out of front matter.
+_TOC_LINE_RE = re.compile(
+    r"^\s*(?:Contents|CONTENTS|Table of Contents"
+    r"|(?:CHAPTER|Chapter|ADVENTURE|Adventure|STORY|Story)?\s*[IVXLC\d]+\.?\s+\S[^\n]{0,80})\s*$"
 )
 
 PART_WORDS = 1800  # fallback segment size when no chapter structure is found
@@ -97,6 +105,18 @@ def _heading_key(heading):
     spot a table-of-contents entry duplicating a real heading later on."""
     m = _CH_NUM_RE.match(heading.strip().lower())
     return m.group(1) if m else None
+
+
+def _front_matter(text):
+    """Everything before the first real chapter: author's introduction,
+    dedication, etc. The Contents listing is scrubbed (the app's chapter nav
+    IS the table of contents); what remains becomes an 'Introduction'
+    chapter if it's substantial, else it's dropped."""
+    lines = [ln for ln in text.split("\n") if not _TOC_LINE_RE.match(ln)]
+    body = _unwrap("\n".join(lines))
+    if len(body) < 500:
+        return None
+    return {"title": "Introduction", "text": body}
 
 
 def _split_chapters(text):
@@ -127,6 +147,9 @@ def _split_chapters(text):
                   or last_seen[_heading_key(m.group(0))] == i]
     if len(boundaries) >= 3:
         chapters = []
+        front = _front_matter(text[: boundaries[0].start()])
+        if front:
+            chapters.append(front)
         for i, m in enumerate(boundaries[:60]):
             end = boundaries[i + 1].start() if i + 1 < len(boundaries) else len(text)
             title = re.sub(r"\s+", " ", m.group(0)).strip()

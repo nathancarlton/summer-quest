@@ -70,7 +70,19 @@ export default function Reader({ player, book, chapter, onQuiz, onNavigate, onBa
       </div>
       <div className="card reader-card">
         <h2>{data.chapter_title}</h2>
-        <div className="reader-text">{data.text}</div>
+        <div className="reader-text">
+          {data.text.split(/\n\n+/).map((p, i) => {
+            const t = p.trim()
+            // A short line with no sentence-ending punctuation is a section
+            // heading (e.g. "Introduction", a poem title) — style it as one.
+            const isHeading = t.length < 60 && !/[.!?…"'’]$/.test(t)
+            return isHeading ? (
+              <h3 key={i} className="reader-heading">{t}</h3>
+            ) : (
+              <p key={i} className="reader-para">{t}</p>
+            )
+          })}
+        </div>
         <div className="stack">
           {!data.quizzed && (
             <button
