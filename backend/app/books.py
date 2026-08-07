@@ -42,7 +42,7 @@ BOOKS = {
 
 # Bump to invalidate every cached book and re-parse on next open (the meta
 # record carries this; a mismatch is treated as a cache miss).
-PARSER_VERSION = 3
+PARSER_VERSION = 4
 
 _fetch_locks = {}
 _locks_guard = threading.Lock()
@@ -76,10 +76,21 @@ _HEADING_RE = re.compile(
     re.M,
 )
 
-# Looser pattern for scrubbing table-of-contents listings out of front matter.
+# Two-line chapter headings (Treasure Island's edition): a line holding ONLY
+# the chapter number — digits, or a multi-letter roman numeral; a lone "I"
+# would false-positive on poem lines — then blank line(s), then the title.
+_TWO_LINE_RE = re.compile(
+    r"\n\n(\d{1,2}|[IVXLC]{2,7})\n+([A-Z“\"'][^\n]{2,70})\n"
+)
+
+# Looser patterns for scrubbing table-of-contents listings out of front
+# matter (and out of Part-fallback text): numbered entries, PART dividers,
+# and dot-leader lines ending in a page number.
 _TOC_LINE_RE = re.compile(
     r"^\s*(?:Contents|CONTENTS|Table of Contents"
-    r"|(?:CHAPTER|Chapter|ADVENTURE|Adventure|STORY|Story)?\s*[IVXLC\d]+\.?\s+\S[^\n]{0,80})\s*$"
+    r"|(?:PART|Part)\s+(?:ONE|TWO|THREE|FOUR|FIVE|SIX|[IVXLC\d]+)[^\n]{0,40}"
+    r"|(?:CHAPTER|Chapter|ADVENTURE|Adventure|STORY|Story)?\s*[IVXLC\d]+\.?\s+\S[^\n]{0,80}"
+    r"|[^\n]{0,80}(?:\.\s+){3,}\.?\s*\d{1,4})\s*$"
 )
 
 PART_WORDS = 1800  # fallback segment size when no chapter structure is found
@@ -131,20 +142,31 @@ def _split_chapters(text):
     heuristics fall back to fixed-size 'Part N' segments — reading still
     works, just without fancy chapter titles."""
     matches = list(_HEADING_RE.finditer(text))
-    boundaries = []
-    for i, m in enumerate(matches):
-        nxt = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        if nxt - m.start() >= 500:
-            boundaries.append(m)
+
+    def _cluster_filter(ms):
+        kept = []
+        for i, m in enumerate(ms):
+            nxt = ms[i + 1].start() if i + 1 < len(ms) else len(text)
+            if nxt - m.start() >= 500:
+                kept.append(m)
+        return kept
+
+    boundaries = _cluster_filter(matches)
+    heading_of = lambda m: m.group(0)
+    if len(boundaries) < 3:
+        # One-line headings failed — try the two-line form ("1" \n title).
+        matches = list(_TWO_LINE_RE.finditer(text))
+        boundaries = _cluster_filter(matches)
+        heading_of = lambda m: f"Chapter {m.group(1)}. {m.group(2).strip()}"
     # Keep only the LAST occurrence of each chapter number.
     last_seen = {}
     for i, m in enumerate(boundaries):
-        key = _heading_key(m.group(0))
+        key = _heading_key(heading_of(m))
         if key is not None:
             last_seen[key] = i
     boundaries = [m for i, m in enumerate(boundaries)
-                  if _heading_key(m.group(0)) is None
-                  or last_seen[_heading_key(m.group(0))] == i]
+                  if _heading_key(heading_of(m)) is None
+                  or last_seen[_heading_key(heading_of(m))] == i]
     if len(boundaries) >= 3:
         chapters = []
         front = _front_matter(text[: boundaries[0].start()])
@@ -152,14 +174,16 @@ def _split_chapters(text):
             chapters.append(front)
         for i, m in enumerate(boundaries[:60]):
             end = boundaries[i + 1].start() if i + 1 < len(boundaries) else len(text)
-            title = re.sub(r"\s+", " ", m.group(0)).strip()
+            title = re.sub(r"\s+", " ", heading_of(m)).strip()
             body = _unwrap(text[m.end():end])
             if len(body) > 200:
                 chapters.append({"title": title, "text": body})
         if len(chapters) >= 3:
             return chapters
-    # Fallback: evenly sized parts (word-joined, so already unwrapped).
-    words = text.split()
+    # Fallback: evenly sized parts. Scrub ToC listings first (dot-leader
+    # lines are never prose) so they don't smear into the part text.
+    clean = "\n".join(ln for ln in text.split("\n") if not _TOC_LINE_RE.match(ln))
+    words = clean.split()
     chapters = []
     for i in range(0, len(words), PART_WORDS):
         chunk = " ".join(words[i:i + PART_WORDS])
