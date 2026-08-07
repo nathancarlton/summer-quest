@@ -15,6 +15,20 @@ Postgres) share one game engine. Full docs in README.md.
   tune its parsing in `_split_chapters()`. Check off / delete this item when
   all eight look right.
 
+## Gotchas learned the hard way
+
+- **Do NOT make the repo private without first connecting Render's GitHub
+  App.** The Render service clones the repo anonymously (it was created via
+  API against the public URL). Flipping the repo private breaks ALL backend
+  deploys — Manual Deploy shows "unable to access your GitHub repository"
+  and the deploy-hook workflow fails with HTTP 400 — while Vercel keeps
+  working (it's app-connected), causing silent frontend/backend skew. This
+  bit us on 2026-08-07. If privacy is wanted later: Render → Account
+  Settings → connect GitHub → grant repo access, verify a deploy works,
+  THEN flip visibility.
+- The deploy workflow has a manual "Run workflow" button (GitHub → Actions)
+  for re-kicking a failed deploy without pushing a dummy commit.
+
 ## Working agreements
 
 - **Branch:** work directly on `main`. Push = deploy (Vercel via git
