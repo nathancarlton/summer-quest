@@ -40,6 +40,10 @@ BOOKS = {
         "emoji": "🎈", "gutenberg_id": 103},
 }
 
+# Bump to invalidate every cached book and re-parse on next open (the meta
+# record carries this; a mismatch is treated as a cache miss).
+PARSER_VERSION = 2
+
 _fetch_locks = {}
 _locks_guard = threading.Lock()
 
@@ -73,29 +77,65 @@ _HEADING_RE = re.compile(
 PART_WORDS = 1800  # fallback segment size when no chapter structure is found
 
 
+def _unwrap(text):
+    """Gutenberg plain text is hard-wrapped at ~70 columns. Rejoin lines
+    within each paragraph (blank lines still separate paragraphs) so the
+    reader reflows naturally on any screen width."""
+    paragraphs = re.split(r"\n\s*\n", text)
+    return "\n\n".join(
+        re.sub(r"\s*\n\s*", " ", p).strip() for p in paragraphs if p.strip()
+    )
+
+
+_CH_NUM_RE = re.compile(
+    r"(?:chapter|adventure|story)?\s*([ivxlc]+|\d+)\b", re.IGNORECASE
+)
+
+
+def _heading_key(heading):
+    """'Chapter IV. The Road…' -> 'iv' — the chapter's number token, used to
+    spot a table-of-contents entry duplicating a real heading later on."""
+    m = _CH_NUM_RE.match(heading.strip().lower())
+    return m.group(1) if m else None
+
+
 def _split_chapters(text):
-    """Split into (title, body) chapters. Table-of-contents lines cluster
-    tightly at the top, so any heading followed by another heading within
-    500 chars is treated as a ToC entry and skipped. Books that defeat the
-    heading heuristics fall back to fixed-size 'Part N' segments — reading
-    still works, just without fancy chapter titles."""
+    """Split into (title, body) chapters.
+
+    Two table-of-contents defenses: ToC lines cluster tightly, so a heading
+    followed by another within 500 chars is skipped — and the LAST couple of
+    ToC entries escape that (the front matter after them is long), so any
+    boundary whose chapter number reappears in a LATER boundary is dropped
+    too (the real chapter heading wins; the ToC stray and any front matter
+    it would have swallowed disappear). Books that defeat the heading
+    heuristics fall back to fixed-size 'Part N' segments — reading still
+    works, just without fancy chapter titles."""
     matches = list(_HEADING_RE.finditer(text))
     boundaries = []
     for i, m in enumerate(matches):
         nxt = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         if nxt - m.start() >= 500:
             boundaries.append(m)
+    # Keep only the LAST occurrence of each chapter number.
+    last_seen = {}
+    for i, m in enumerate(boundaries):
+        key = _heading_key(m.group(0))
+        if key is not None:
+            last_seen[key] = i
+    boundaries = [m for i, m in enumerate(boundaries)
+                  if _heading_key(m.group(0)) is None
+                  or last_seen[_heading_key(m.group(0))] == i]
     if len(boundaries) >= 3:
         chapters = []
         for i, m in enumerate(boundaries[:60]):
             end = boundaries[i + 1].start() if i + 1 < len(boundaries) else len(text)
             title = re.sub(r"\s+", " ", m.group(0)).strip()
-            body = text[m.end():end].strip()
+            body = _unwrap(text[m.end():end])
             if len(body) > 200:
                 chapters.append({"title": title, "text": body})
         if len(chapters) >= 3:
             return chapters
-    # Fallback: evenly sized parts.
+    # Fallback: evenly sized parts (word-joined, so already unwrapped).
     words = text.split()
     chapters = []
     for i in range(0, len(words), PART_WORDS):
@@ -117,23 +157,32 @@ def _fetch_and_cache(book):
         raise ValueError(f"could not extract chapters for {book}")
     for i, ch in enumerate(chapters):
         storage.set_json(_chapter_key(book, i), ch)
-    meta = {"chapters": len(chapters), "titles": [c["title"] for c in chapters]}
+    meta = {"chapters": len(chapters), "titles": [c["title"] for c in chapters],
+            "parser": PARSER_VERSION}
     storage.set_json(_meta_key(book), meta)
     return meta
 
 
 def get_meta(book, fetch=False):
     """Cached chapter metadata; with fetch=True, downloads the book on a
-    cache miss (one Gutenberg download per book, ever)."""
+    cache miss. A meta record from an older parser version counts as a miss,
+    so parser fixes automatically re-fetch and re-parse on next open."""
     if book not in BOOKS:
         raise KeyError(book)
     meta = storage.get_json(_meta_key(book))
+    if meta and meta.get("parser") != PARSER_VERSION:
+        meta = None
     if meta or not fetch:
         return meta
     with _locks_guard:
         lock = _fetch_locks.setdefault(book, threading.Lock())
     with lock:
-        return storage.get_json(_meta_key(book)) or _fetch_and_cache(book)
+        # Re-check inside the lock WITH the version validation — a stale
+        # v1 record must trigger the re-fetch, not satisfy it.
+        meta = storage.get_json(_meta_key(book))
+        if meta and meta.get("parser") == PARSER_VERSION:
+            return meta
+        return _fetch_and_cache(book)
 
 
 def get_chapter(book, i):
