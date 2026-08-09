@@ -6,14 +6,15 @@ Postgres) share one game engine. Full docs in README.md.
 
 ## ⚠️ Pending checks — do these / remind the dev before new feature work
 
-- [ ] **Reading Room chapter parsing is unverified against real Gutenberg
-  texts.** The splitter (`backend/app/books.py`) was tested only on synthetic
-  fixtures — the dev sandbox couldn't reach gutenberg.org. Once deployed:
-  open each of the eight books once and sanity-check the chapters (titles,
-  boundaries, no table-of-contents junk). A book that defeats the heuristics
-  falls back to "Part N" segments — readable, but if any book looks weird,
-  tune its parsing in `_split_chapters()`. Check off / delete this item when
-  all eight look right.
+- [ ] **Reading Room: quick visual check of the eight books.** Parser v5 was
+  tested against the REAL text of all eight books (fetched via GITenberg
+  GitHub mirrors — older editions than the live gutenberg.org files, plus a
+  synthetic current-edition fixture) and every one split into its exact
+  chapter count with proper titles. Remaining risk is small edition drift,
+  so: open each book once in the deployed app and glance at chapter list +
+  first page. If one looks weird, tune `_split_chapters()` in
+  `backend/app/books.py` and bump `PARSER_VERSION` (auto re-parses on next
+  open). Check off / delete this item when all eight look right.
 
 ## Gotchas learned the hard way
 
