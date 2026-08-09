@@ -42,7 +42,7 @@ BOOKS = {
 
 # Bump to invalidate every cached book and re-parse on next open (the meta
 # record carries this; a mismatch is treated as a cache miss).
-PARSER_VERSION = 5
+PARSER_VERSION = 6
 
 _fetch_locks = {}
 _locks_guard = threading.Lock()
@@ -56,6 +56,27 @@ def _chapter_key(book, i):
     return f"book:{book}:ch:{i}"
 
 
+# Editors' picture placeholders in the plain-text editions: "[Illustration]"
+# alone, or with a caption that may wrap across lines
+# ("[Illustration: "How queer everything is to-day!"]"). The picture itself
+# isn't in a .txt file, so the marker is noise on screen — drop it, caption
+# and all (a caption with no picture reads as a non sequitur). The caption
+# body forbids brackets and is length-capped so an unclosed bracket can't
+# eat the chapter.
+_MARKER_RE = re.compile(
+    r"[ \t]*\[(?:Illustration|ILLUSTRATION|Frontispiece|Music)"
+    r"(?::[^\[\]]{0,400})?\][ \t]*",
+    re.S,
+)
+
+
+def _strip_markers(text):
+    text = _MARKER_RE.sub("", text)
+    # A marker that sat alone on its line leaves that line blank; collapse
+    # the run so it doesn't read as an extra paragraph break.
+    return re.sub(r"\n{3,}(?=[ \t]*\n)", "\n\n", text)
+
+
 def _strip_gutenberg_boilerplate(text):
     # Gutenberg plain-text files use \r\n line endings; every regex below
     # assumes bare \n, so normalize FIRST (this bit us in parser v4: the
@@ -67,7 +88,9 @@ def _strip_gutenberg_boilerplate(text):
     end = re.search(r"\*\*\* ?END OF (?:THE|THIS) PROJECT GUTENBERG.*", text)
     if end:
         text = text[: end.start()]
-    return text.strip()
+    # Before any splitting: a marker between a chapter heading and its title
+    # line would otherwise hide the title.
+    return _strip_markers(text).strip()
 
 
 # Chapter headings across these eight books: "CHAPTER I.", "Chapter 1",
