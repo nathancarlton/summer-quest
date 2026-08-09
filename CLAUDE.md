@@ -42,6 +42,23 @@ Not commitments; a place so good ideas stop living in chat scrollback.
   from our own domain (right answer, costs Supabase storage). Untestable
   from the cloud sandbox — gutenberg.org is blocked there, so build it from
   a machine that can reach it.
+- **Read the books aloud with an AI voice.** A "🔊 Read to me" control in the
+  Reader. Two very different implementations: (a) the browser's built-in
+  speech synthesis — free, no backend, no storage, works offline, but the
+  voice quality is whatever that device ships and varies wildly between a
+  Mac and an old Android; (b) a real TTS API (MiniMax sells speech on the
+  same account as the question generation — check current model names and
+  per-character pricing), which sounds far better but has to be paid for and
+  cached, since a chapter is 15–30k characters and re-synthesizing it on
+  every open would be absurd. Cache per chapter, keyed like the quizzes
+  (`bookaudio:{book}:{ch}`), so the whole family pays for each chapter once —
+  and note this hits the same storage question as the illustrations item
+  (audio is much bigger than images; Supabase free tier is 500MB, so plan on
+  expiring least-recently-used chapters). Worth doing (a) first regardless:
+  it's an afternoon, it costs nothing, and it answers whether the kids
+  actually use it before spending money on voices. Follow-along word
+  highlighting is a nice-to-have that (a) supports via speech boundary
+  events and (b) mostly doesn't. Chapter quizzes work unchanged either way.
 - **Dependabot alert** on the default branch (one moderate, likely a Python
   dep) — nobody has looked yet.
 - **Rotate the MiniMax API key.** The working key was pasted through chat
