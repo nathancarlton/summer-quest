@@ -959,6 +959,8 @@ textarea:focus {
 
 .reader-para {
   margin: 0;
+  /* Verse/song paragraphs arrive with real \n line breaks — honor them. */
+  white-space: pre-line;
 }
 
 .reader-heading {
