@@ -1354,10 +1354,18 @@ def challenge_answer(quest, index, player=None):
                 "message": "The appeals judge is offline right now — ask a grown-up to check this one."}
 
     q = quest["questions"][index]
+    # Multiple choice is graded by letter match in code, so no grader can have
+    # erred — the only live question is whether the KEY is wrong, and that gets
+    # the strict answer-key audit. Written answers keep the sympathetic appeals
+    # judge, which exists precisely because AI grading of prose can be wrong.
+    is_mc = bool(q.get("options"))
     try:
-        overturned, message = ai.challenge_grading(
-            q, entry.get("answer", ""), entry.get("feedback", "")
-        )
+        if is_mc:
+            overturned, message = ai.audit_mc_challenge(q, entry.get("answer", ""))
+        else:
+            overturned, message = ai.challenge_grading(
+                q, entry.get("answer", ""), entry.get("feedback", "")
+            )
         _note_ai(True, "challenge review succeeded")
     except Exception as e:
         _note_ai(False, f"challenge review failed: {e}")
@@ -1400,7 +1408,9 @@ def challenge_answer(quest, index, player=None):
             block_question(q["id"], "challenge_overturned", q.get("question", ""))
         save_player(p)
         file_report(p, quest, index, "challenge_won",
-                    note="auto-filed: the appeals judge overturned this ruling")
+                    note="auto-filed: the answer-key audit found this key wrong"
+                    if is_mc else
+                    "auto-filed: the appeals judge overturned this ruling")
     storage.set_json(_quest_key(quest["id"]), quest)
     log_activity(p, "challenge", {
         "overturned": bool(overturned),

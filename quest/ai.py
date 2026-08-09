@@ -587,6 +587,62 @@ sentences delivering the ruling honestly — celebrate an overturn; if upheld, \
 explain kindly and clearly why the original ruling stands."}}"""
 
 
+MC_CHALLENGE_PROMPT = """A {grade} student challenged a multiple-choice question. \
+Multiple-choice answers are checked by exact letter match in code, so there is no \
+grader to have made a mistake here: the ONLY question is whether the answer key \
+itself is wrong. You are auditing the key.
+
+Work out the correct answer YOURSELF first — solve math step by step, apply the \
+grammar rule carefully, recall facts precisely — and only then look at the key.
+
+Question: {question}
+{passage_block}Options:
+{options}
+Answer key says: {expected}
+The student chose: {student}
+
+Rule that the key is WRONG only if: the keyed option is genuinely incorrect, the \
+true answer is missing from the options, or another option is equally correct under \
+the rule being tested. A common mistake that this question is DESIGNED to catch is \
+not a defensible alternative — a student who fell into that trap got it wrong, and \
+telling them otherwise robs them of the lesson. Being widespread in casual speech \
+does not make an option correct on a question about the rule.
+
+Return ONLY JSON: {{"key_is_wrong": true|false, "your_answer": "letter", "message": \
+"2-3 warm, kid-friendly sentences. If the key is wrong, say so plainly and \
+congratulate them for catching it. If the key is right, tell them kindly that this \
+one stands and teach the rule that makes the keyed option correct — this is the \
+moment the lesson lands."}}"""
+
+
+def audit_mc_challenge(question, student_answer):
+    """A disputed multiple-choice ruling. Returns (overturned, message).
+
+    Deliberately NOT the sympathetic appeals judge: that one is told to favor
+    the student on any defensible reading, which is right when an AI graded a
+    written answer and could have erred, but wrong here — it overturned
+    "Neither of the answers ___ correct" in favor of "were", paying XP for the
+    exact error the question tests and pulling a sound question from every
+    player's rotation."""
+    passage_block = (
+        f"Passage: {question['passage']}\n" if question.get("passage") else ""
+    )
+    text = _chat(
+        [{"role": "user", "content": MC_CHALLENGE_PROMPT.format(
+            grade=config.GRADE_LEVEL,
+            question=question["question"],
+            passage_block=passage_block,
+            options="\n".join(question.get("options") or []),
+            expected=question["answer"],
+            student=student_answer or "(nothing)",
+        )}],
+        temperature=0.0,  # same determinism as the answer-key audit
+        max_tokens=3000,
+    )
+    result = _extract_json(text)
+    return bool(result.get("key_is_wrong")), result.get("message", "")
+
+
 def challenge_grading(question, student_answer, original_feedback=""):
     """Adversarial re-review of a disputed ruling. Returns (overturned, message)."""
     passage_block = (

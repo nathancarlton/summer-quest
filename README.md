@@ -295,11 +295,28 @@ Feedback may never reference the answer on file — the learner can't see it,
 and "to match the model's format" means nothing to an 11-year-old.
 
 If something still slips through, a learner can hit "⚖️ Challenge it" on a
-wrong ruling: a third independent AI pass re-evaluates — told explicitly that
-the question or the original grader may be wrong — and pays XP retroactively
-on an overturn, correcting every stat the original ruling touched. Any
-question can also be reported directly via "📮 Report this question." Both
-land at `GET /api/v1/reports`.
+wrong ruling — and which reviewer hears the appeal depends on what could
+actually have gone wrong:
+
+- **Written answers** go to a sympathetic appeals judge, told explicitly that
+  the question or the original grader may be wrong. AI grading of prose is
+  genuinely fallible, so the benefit of the doubt belongs with the learner.
+- **Multiple choice** goes to the strict answer-key audit instead. MC answers
+  are checked by letter match in code, so no grader can have erred — the only
+  live question is whether the key is wrong. Sending these to the lenient
+  judge produced the opposite failure from the grading bugs above: it
+  overturned "Neither of the answers ___ correct" in favour of "were", paying
+  XP for precisely the error the question was built to catch and pulling a
+  sound question out of every player's rotation. The audit re-derives the
+  answer at temperature 0 and is told that a mistake the question is *designed*
+  to catch is not a defensible alternative, and that being common in speech
+  doesn't make an option correct on a question about the rule. When it upholds
+  the key, the learner gets the rule explained — the lesson is the point.
+
+An overturn pays XP retroactively, corrects every stat the original ruling
+touched, and pulls the question pending parent review. Any question can also
+be reported directly via "📮 Report this question." Both land at
+`GET /api/v1/reports`.
 
 Two cross-player mechanisms tie it together (question ids are content-hashed,
 so they work across everyone):

@@ -82,6 +82,13 @@ Not commitments; a place so good ideas stop living in chat scrollback.
 - **Activity logging writes on session boundaries only** (login/logout,
   start/finish, chapter open) — never per answer. The answer path's latency
   is the thing users feel; don't add store writes to it.
+- **Challenges route by question type** (`engine.challenge_answer`): multiple
+  choice → `ai.audit_mc_challenge` (strict key audit, temp 0 — MC is graded by
+  letter match in code, so only the KEY can be wrong); written answers →
+  `ai.challenge_grading` (sympathetic appeals judge, because AI grading of
+  prose really can err). Don't merge them back together: the lenient judge on
+  MC overturned a correct subject-verb agreement question, paid XP for the
+  error it was testing, and blocked a good question for everyone.
 - **Open-ended written tasks** ("write three X, separated by commas") are
   detected in `quest/ai.py` (`_is_open_ended`) and graded against the TASK,
   not the stored answer — which is one of many valid responses. Anything
