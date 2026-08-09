@@ -172,8 +172,37 @@ def login(pid: str, body: LoginBody, request: Request):
     if not p.get("secret_hash"):
         raise HTTPException(409, "no secret set yet — create one first")
     if not security.verify_secret(body.secret, p["secret_hash"]):
+        engine.log_activity(p, "login_failed")
         raise HTTPException(401, "wrong secret password")
+    engine.log_activity(p, "login")
     return {"token": engine.issue_token(p), "player": engine.public_player(p)}
+
+
+@app.post("/api/v1/players/{pid}/logout")
+def logout(pid: str, x_player_token: str = Header(default="")):
+    """Signing out ends the session in the parent view and kills this
+    device's token; other devices stay signed in."""
+    p = _authed_player(pid, x_player_token)
+    engine.revoke_token(x_player_token)
+    engine.log_activity(p, "logout")
+    return {"ok": True}
+
+
+class NameBody(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+@app.post("/api/v1/players/{pid}/name",
+          dependencies=[Depends(security.rate_limit("rename", 6, 3600))])
+def rename_player(pid: str, body: NameBody,
+                  x_player_token: str = Header(default="")):
+    """Change your display name (home screen, leaderboard, parent view).
+    Only the logged-in owner can do it; names stay unique in the family."""
+    p = _authed_player(pid, x_player_token)
+    try:
+        return engine.public_player(engine.rename_player(p, body.name))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
 
 
 @app.get("/api/v1/players/{pid}/hint")
@@ -198,11 +227,13 @@ def set_secret(pid: str, body: SecretBody,
     """First-time creation for players without a secret (CLI imports,
     pre-auth profiles); changing an existing secret requires being logged in."""
     p = _player_or_404(pid)
-    if p.get("secret_hash"):
+    existing = bool(p.get("secret_hash"))
+    if existing:
         tp = engine.player_for_token(x_player_token)
         if not tp or tp["id"] != pid:
             raise HTTPException(401, "login required to change your secret")
     engine.set_secret(p, body.secret, body.hint)
+    engine.log_activity(p, "secret_changed" if existing else "secret_created")
     return {"token": engine.issue_token(p), "player": engine.public_player(p)}
 
 
@@ -263,6 +294,7 @@ def get_player(pid: str, x_player_token: str = Header(default="")):
     # Opening the app is the earliest signal a quest is coming — start brewing
     # AI questions now so even the FIRST quest of the day can be fresh.
     engine.refill_pool_in_background(p)
+    engine.touch_seen(p)  # throttled internally; no write on most calls
     return engine.public_player(p)
 
 
@@ -457,6 +489,7 @@ def report_issue(qid: str, body: ReportBody,
                  x_player_token: str = Header(default="")):
     quest, player = _authed_quest(qid, x_player_token)
     engine.file_report(player, quest, body.index, "manual", body.note)
+    engine.log_activity(player, "reported_question")
     # A reported question is pulled from EVERYONE's rotation until a parent
     # reviews it in the Parent Zone.
     q = quest["questions"][body.index] if body.index < len(quest["questions"]) else None
@@ -480,6 +513,15 @@ def list_reports(authorization: str = Header(default=""), token: str = ""):
     """Parent view: open this URL in a browser to read flagged questions."""
     _require_reports_auth(authorization, token)
     return engine.get_reports()
+
+
+@app.get("/api/v1/activity")
+def activity(authorization: str = Header(default=""), token: str = "",
+             days: int = 14):
+    """Parent view: who signed in when, what they did, when they left.
+    Same SYNC_TOKEN gate as reports — it's a window on the kids' sessions."""
+    _require_reports_auth(authorization, token)
+    return engine.activity_overview(max(1, min(days, 90)))
 
 
 @app.delete("/api/v1/reports")

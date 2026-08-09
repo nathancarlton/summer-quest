@@ -1,8 +1,63 @@
+import { useState } from 'react'
+import { api } from '../api.js'
 import { CATEGORY_LABELS, TOPIC_META } from '../constants.js'
 import { Hud } from './Home.jsx'
 
+// Changing the name shown on the home screen, leaderboard and badges.
+// Collisions are rejected by the server (the login roster shows names only,
+// so two identical names would be impossible to tell apart).
+function RenameBox({ player, onRenamed, onCancel }) {
+  const [name, setName] = useState(player.name)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const trimmed = name.trim()
+
+  const save = async (e) => {
+    e.preventDefault()
+    if (!trimmed || trimmed === player.name) {
+      onCancel()
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      onRenamed(await api.rename(player.id, trimmed))
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="rename-box" onSubmit={save}>
+      <label>
+        What should we call you?
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={40}
+          autoFocus
+        />
+      </label>
+      {error && <p className="error">{error}</p>}
+      <p className="muted">
+        Your XP, badges, streak and books all stay exactly where they are.
+      </p>
+      <div className="row">
+        <button className="btn primary grow" disabled={busy}>
+          {busy ? 'Saving…' : 'Save my new name'}
+        </button>
+        <button type="button" className="btn grow" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
 // ui.show_stats: the report card — per-category accuracy + badge collection.
-export default function Stats({ player, onEditFavorites, onBack }) {
+export default function Stats({ player, onEditFavorites, onRenamed, onBack }) {
+  const [renaming, setRenaming] = useState(false)
   const rows = Object.entries(player.categories)
     .filter(([, s]) => s.answered > 0)
     .map(([cat, s]) => ({
@@ -19,6 +74,7 @@ export default function Stats({ player, onEditFavorites, onBack }) {
     <div className="shell center">
       <h1 className="logo">📊 My Stats</h1>
       <div className="card">
+        <h2 className="stats-name">{player.name}</h2>
         <Hud player={player} />
         <p className="muted">
           Challenge level: {'⭐'.repeat(player.difficulty || 2)} ({player.difficulty || 2}/5)
@@ -75,10 +131,26 @@ export default function Stats({ player, onEditFavorites, onBack }) {
             ))}
           </div>
         )}
+        {renaming ? (
+          <RenameBox
+            player={player}
+            onRenamed={(p) => {
+              setRenaming(false)
+              onRenamed(p)
+            }}
+            onCancel={() => setRenaming(false)}
+          />
+        ) : (
+          <div className="row">
+            <button className="btn grow" onClick={onEditFavorites}>
+              ✏️ My favorites
+            </button>
+            <button className="btn grow" onClick={() => setRenaming(true)}>
+              🪪 Change my name
+            </button>
+          </div>
+        )}
         <div className="row">
-          <button className="btn grow" onClick={onEditFavorites}>
-            ✏️ My favorites
-          </button>
           <button className="btn primary grow" onClick={onBack}>
             Back
           </button>

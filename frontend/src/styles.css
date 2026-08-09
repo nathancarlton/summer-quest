@@ -1067,6 +1067,84 @@ textarea:focus {
   line-height: 1.4;
 }
 
+/* ─── Parent Zone: activity ─── */
+.tab-row {
+  margin-bottom: 2px;
+}
+
+.act-day {
+  font-weight: 700;
+  color: var(--ink);
+  padding: 4px 2px 0;
+}
+
+.session {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  box-shadow: 0 4px 14px var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.act-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.act-list li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.act-time {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+  min-width: 62px;
+}
+
+.act-warn {
+  color: var(--warn);
+  font-size: 0.85rem;
+}
+
+.act-table td,
+.act-table th {
+  padding: 7px 6px;
+  font-size: 0.88rem;
+}
+
+.act-table td:not(:first-child) {
+  white-space: nowrap;
+}
+
+.act-range {
+  margin-bottom: 10px;
+}
+
+/* ─── Rename ─── */
+.stats-name {
+  margin-bottom: 4px;
+}
+
+.rename-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
 /* ─── Spinner ─── */
 .spinner {
   width: 44px;

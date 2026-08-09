@@ -47,6 +47,7 @@ def create_player(name, prefs):
     p = profile_mod._default(name)
     p["prefs"] = prefs or {}
     save_player(p)
+    log_activity(p, "joined", {"name": name})
     # Start brewing AI questions immediately — by the time the kid finishes
     # looking at the home screen, their first quest may already be AI-fresh.
     refill_pool_in_background(p)
@@ -133,6 +134,30 @@ def update_prefs(p, new_prefs):
         else:
             prefs.pop(k, None)
     save_player(p)
+    log_activity(p, "favorites", {"changed": sorted(new_prefs or {})})
+    return p
+
+
+def rename_player(p, new_name):
+    """Change the name shown everywhere (home screen, leaderboard, parent
+    view). Names must stay distinct within the family — the login roster
+    shows names only, so two Sams would be indistinguishable there."""
+    name = " ".join(str(new_name).split())[:40]
+    if not name:
+        raise ValueError("a name can't be blank")
+    old = p.get("name", "")
+    if name == old:
+        return p
+    if name.lower() != old.lower():
+        for other in list_players():
+            if other["id"] != p["id"] and other.get("name", "").lower() == name.lower():
+                raise ValueError(f"{name} is already taken by another player")
+    p["name"] = name
+    # Marks the web name as authoritative so a later CLI sync (whose profile
+    # still carries the old name) can't silently rename them back.
+    p["renamed_at"] = datetime.now(timezone.utc).isoformat()
+    save_player(p)
+    log_activity(p, "renamed", {"from": old, "to": name})
     return p
 
 
@@ -211,6 +236,13 @@ def player_for_token(token):
     if p is None or rec.get("gen") != p.get("auth_gen", 0):
         return None
     return p
+
+
+def revoke_token(token):
+    """Signing out: drop this one token. Other devices stay logged in (only
+    a secret change invalidates every token at once)."""
+    if token:
+        storage.store.delete(security.token_key(token))
 
 
 # ─── Streaks (client-local dates) ────────────────────────────────────────────
@@ -671,6 +703,7 @@ def start_expedition(p, topic=None):
     p["active_quest"] = quest["id"]
     save_player(p)
     storage.set_json(_quest_key(quest["id"]), quest)
+    log_activity(p, "expedition_start", {"topic": label})
     return {
         "quest_id": quest["id"],
         "kind": "expedition",
@@ -758,6 +791,7 @@ def start_quest(p, local_date=None):
     save_player(p)
     refill_pool_in_background(p)
     storage.set_json(_quest_key(quest["id"]), quest)
+    log_activity(p, "quest_start", {"questions": len(questions)})
     return {
         "quest_id": quest["id"],
         "kind": "quest",
@@ -1009,6 +1043,9 @@ def complete_quest(quest, player=None):
     append_history(p["id"], summary)
     storage.store.delete(_quest_key(quest["id"]))
     refill_pool_in_background(p)
+    log_activity(p, "quest_done", {
+        "score": quest["correct_count"], "total": total, "xp": xp_gained,
+    })
 
     return {
         "score": quest["correct_count"],
@@ -1052,6 +1089,10 @@ def _complete_expedition(quest, player=None):
     })
     storage.store.delete(_quest_key(quest["id"]))
     refill_pool_in_background(p)
+    log_activity(p, "expedition_done", {
+        "topic": label, "score": quest["correct_count"],
+        "total": len(quest["questions"]), "sparks": quest["xp_gained"],
+    })
 
     return {
         "kind": "expedition",
@@ -1120,6 +1161,9 @@ def open_chapter(p, book, chapter):
     ch, total = books.get_chapter(book, chapter)
     brew_reading_quiz_in_background(book, chapter)
     prog = reading_progress(p, book)
+    log_activity(p, "reading", {"book": books.BOOKS[book]["title"],
+                                "chapter": chapter + 1,
+                                "chapter_title": ch["title"]})
     return {
         "book": book,
         "index": chapter,
@@ -1190,6 +1234,8 @@ def start_reading_quiz(p, book, chapter):
     p["active_quest"] = quest["id"]
     save_player(p)
     storage.set_json(_quest_key(quest["id"]), quest)
+    log_activity(p, "reading_quiz_start",
+                 {"book": info["title"], "chapter": chapter + 1})
     return {
         "quest_id": quest["id"],
         "kind": "reading",
@@ -1228,6 +1274,11 @@ def _complete_reading(quest, player=None):
         "xp_gained": quest["xp_gained"],
     })
     storage.store.delete(_quest_key(quest["id"]))
+    log_activity(p, "reading_quiz_done", {
+        "book": info["title"], "chapter": chapter + 1,
+        "score": quest["correct_count"], "total": len(quest["questions"]),
+        "xp": quest["xp_gained"],
+    })
     return {
         "kind": "reading",
         "score": quest["correct_count"],
@@ -1351,7 +1402,138 @@ def challenge_answer(quest, index, player=None):
         file_report(p, quest, index, "challenge_won",
                     note="auto-filed: the appeals judge overturned this ruling")
     storage.set_json(_quest_key(quest["id"]), quest)
+    log_activity(p, "challenge", {
+        "overturned": bool(overturned),
+        "question": (q.get("question") or "")[:120],
+    })
     return {"overturned": overturned, "message": message, "xp_awarded": xp_awarded}
+
+
+# ─── Activity log (parent view) ──────────────────────────────────────────────
+# A per-player breadcrumb trail: signing in and out, and what happened in
+# between. Written on session boundaries only — never per answer — so it
+# costs one small store write at moments that are already slow (a quest
+# start), not on the latency-critical answer path.
+
+ACTIVITY_MAX = 400  # events kept per player (oldest fall off)
+SEEN_REFRESH_SECONDS = 300
+
+
+def _activity_key(pid):
+    return f"activity:{pid}"
+
+
+def log_activity(p, kind, detail=None):
+    """Record one event. `p` may be a player dict or a bare player id."""
+    pid = p["id"] if isinstance(p, dict) else p
+    if not pid:
+        return
+    events = storage.get_json(_activity_key(pid), [])
+    events.append({
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "kind": kind,
+        "detail": detail or {},
+    })
+    storage.set_json(_activity_key(pid), events[-ACTIVITY_MAX:])
+
+
+def get_activity(pid):
+    return storage.get_json(_activity_key(pid), [])
+
+
+def touch_seen(p):
+    """Cheap 'still here' marker for the parent view. Throttled hard: the
+    home screen refetches the player on every navigation, and a write per
+    hop would add a store round trip to a hot path for no new information."""
+    now = datetime.now(timezone.utc)
+    last = p.get("last_seen")
+    if last:
+        try:
+            if (now - datetime.fromisoformat(last)).total_seconds() < SEEN_REFRESH_SECONDS:
+                return
+        except ValueError:
+            pass
+    p["last_seen"] = now.isoformat(timespec="seconds")
+    save_player(p)
+
+
+def _minutes_between(a, b):
+    try:
+        return max(0, round(
+            (datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds() / 60
+        ))
+    except (ValueError, TypeError):
+        return 0
+
+
+def activity_sessions(days=14):
+    """The parent view's shape: one entry per sign-in, holding everything
+    that happened before the sign-out (or before the trail went cold).
+
+    Events are grouped rather than listed flat because 'when did they log in
+    and out' is a question about spans, not instants. A session with no
+    logout stays open — kids close the tab far more often than they press
+    'switch player' — so `signed_out` distinguishes a real sign-out from a
+    walk-away, and `end` is then the last thing they actually did."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, days))).isoformat()
+    out, failed = [], []
+    for p in list_players():
+        current = None
+        for e in get_activity(p["id"]):
+            if e.get("ts", "") < cutoff:
+                continue
+            if e["kind"] == "login_failed":
+                # A wrong password isn't a session — it's an attempt to start
+                # one. Kept apart so it can't masquerade as time spent.
+                failed.append({"player_id": p["id"], "player_name": p.get("name", ""),
+                               "ts": e["ts"]})
+                continue
+            if e["kind"] == "login" or current is None:
+                if current:
+                    out.append(current)
+                current = {
+                    "player_id": p["id"],
+                    "player_name": p.get("name", ""),
+                    "start": e["ts"],
+                    "end": e["ts"],
+                    "signed_out": False,
+                    "events": [],
+                }
+            current["end"] = e["ts"]
+            if e["kind"] == "logout":
+                current["signed_out"] = True
+                out.append(current)
+                current = None
+            elif e["kind"] != "login":
+                current["events"].append(e)
+        if current:
+            out.append(current)
+    for s in out:
+        s["minutes"] = _minutes_between(s["start"], s["end"])
+    out.sort(key=lambda s: s["start"], reverse=True)
+    failed.sort(key=lambda f: f["ts"], reverse=True)
+    return out, failed
+
+
+def activity_overview(days=14):
+    """Sessions plus a per-player roll-up, so the parent view can lead with
+    'who has been on lately' before the detail."""
+    sessions, failed = activity_sessions(days)
+    players = []
+    for p in list_players():
+        mine = [s for s in sessions if s["player_id"] == p["id"]]
+        players.append({
+            "id": p["id"],
+            "name": p.get("name", ""),
+            "last_seen": p.get("last_seen"),
+            "sessions": len(mine),
+            "minutes": sum(s["minutes"] for s in mine),
+            "activities": sum(len(s["events"]) for s in mine),
+            "failed_logins": sum(1 for f in failed if f["player_id"] == p["id"]),
+        })
+    players.sort(key=lambda r: (r["last_seen"] or "", r["name"]), reverse=True)
+    return {"days": days, "players": players, "sessions": sessions,
+            "failed_logins": failed}
 
 
 # ─── History + CLI sync ──────────────────────────────────────────────────────
@@ -1381,9 +1563,13 @@ def ingest_cli_progress(profile, session_summary):
     existing = get_player(pid)
     if existing:
         for k in ("secret_hash", "secret_hint", "auth_gen", "active_quest",
-                  "sparks", "stickers", "expedition_wanted"):
+                  "sparks", "stickers", "expedition_wanted", "last_seen"):
             if k in existing and k not in profile:
                 profile[k] = existing[k]
+        # A rename done in the web app wins over the name the CLI still has.
+        if existing.get("renamed_at"):
+            profile["name"] = existing["name"]
+            profile["renamed_at"] = existing["renamed_at"]
     save_player(_normalize(profile))
     if session_summary:
         append_history(pid, session_summary)

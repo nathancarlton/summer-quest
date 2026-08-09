@@ -156,6 +156,8 @@ The frontend reads `VITE_API_URL` (defaults to `http://localhost:8000`).
 | `GET /api/v1/players/{id}/hint` | the player's password hint |
 | `POST /api/v1/players/{id}/secret` | first-time secret creation (CLI imports); changing requires login |
 | `POST /api/v1/players/{id}/lockout` | "I forgot my password" → notifies the game developers |
+| `POST /api/v1/players/{id}/logout` | sign out: revokes this device's token, closes the session in the parent view |
+| `POST /api/v1/players/{id}/name` | change your display name (owner-only; names stay unique in the family) |
 | `POST /api/v1/players/{id}/secret/reset` | parent reset (Bearer `SYNC_TOKEN` when set) |
 | `GET /api/v1/players/{id}` | profile + computed level/badges/active-session state |
 | `GET /api/v1/players/{id}/active` | is there an unfinished session? |
@@ -173,6 +175,7 @@ The frontend reads `VITE_API_URL` (defaults to `http://localhost:8000`).
 | `GET /api/v1/leaderboard` | all players ranked by XP |
 | `GET /api/v1/ai/status` | is MiniMax working? `?probe=true` fires a live test call |
 | `GET /api/v1/reports` / `DELETE /api/v1/reports` | flagged questions + auto-filed challenge wins (requires `SYNC_TOKEN` when set) |
+| `GET /api/v1/activity?days=14` | parent view: sign-ins, what happened, sign-outs (requires `SYNC_TOKEN` when set) |
 | `POST /api/v1/progress` | the CLI's sync contract (Bearer `SYNC_TOKEN`) |
 
 Answers never reach the browser: grading happens on the server, so a curious kid can't peek in DevTools. Question generation works exactly like the CLI — instant serve from a per-player pre-generated pool (or the offline bank on first play), while a background thread brews the next themed session and audits anything not yet verified.
@@ -307,12 +310,25 @@ as right ones.
 The "🔧 Parent zone" link on the player-picker screen opens the admin view.
 The admin key is the backend's `SYNC_TOKEN` — set it on the service
 (`export SYNC_TOKEN=... && bash scripts/deploy_render.sh`, or via the Render
-dashboard) and enter it once; it's remembered on that device. Inside:
-flagged questions with the kid's answer and the feedback they saw, overturned
-AI rulings, and locked-out password requests with a one-click reset button
-(the kid creates a new secret at next login). Until a `SYNC_TOKEN` is set,
-reports and resets are open — fine briefly, but set one before sharing the
-app around.
+dashboard) and enter it once; it's remembered on that device. Two tabs:
+
+**🕒 Activity** — who signed in when, what they did while they were on, and
+when they left, grouped into visits under day headings and shown in your
+local time. A roll-up across the window (7/14/30 days) gives last-seen,
+visit count and minutes per player, plus a ⚠️ count of wrong-password
+attempts. A visit with no sign-out reads "still open" — kids close the tab
+far more often than they press "switch player", so its end time is the last
+thing they actually did rather than a real goodbye. Events are recorded at
+session boundaries (sign in/out, quest and expedition start/finish, chapter
+opened, quiz taken, challenge, report, rename, password change) — never per
+answer, which keeps the latency-critical answer path free of extra writes.
+
+**📮 Reports** — flagged questions with the kid's answer and the feedback
+they saw, overturned AI rulings, and locked-out password requests with a
+one-click reset button (the kid creates a new secret at next login).
+
+Until a `SYNC_TOKEN` is set, the Parent Zone is open — fine briefly, but set
+one before sharing the app around.
 
 ### Point the CLI at the backend (optional)
 
@@ -329,7 +345,7 @@ Set in each machine's `.env`: `SYNC_URL=https://your-backend-url` and a matching
 This repo is public. A few things worth knowing if you're deploying your own copy:
 
 - **No secrets belong in this repo.** `.env`, `.env.local`, and `.vercel/` are gitignored; `.env.example` holds placeholder values only. Never commit a real API key, database password, or deploy token — if one leaks into git history, rotate it immediately (removing the file in a later commit does not remove it from history).
-- **`SYNC_TOKEN`** gates two things: the CLI sync endpoint (`POST /api/v1/progress`) and the reports endpoint (`GET`/`DELETE /api/v1/reports`), which contains question text and kids' answers. It's optional for a small family deploy behind an obscure URL, but set it before sharing the app or the backend URL more broadly.
+- **`SYNC_TOKEN`** gates the CLI sync endpoint (`POST /api/v1/progress`), the reports endpoint (`GET`/`DELETE /api/v1/reports`), which contains question text and kids' answers, and the activity endpoint (`GET /api/v1/activity`), which contains their session history. It's optional for a small family deploy behind an obscure URL, but set it before sharing the app or the backend URL more broadly.
 - **`CORS_ORIGINS`** defaults to allowing any origin, which is convenient while standing things up but means any website could call your API from a visitor's browser. Set it to your actual Vercel URL for a real deploy.
 - **Player auth**: every player sets a secret password (+ a hint only they understand); logging in issues a bearer token (`X-Player-Token`) required on all player-scoped endpoints. Passwords are stored PBKDF2-hashed; tokens are stored hashed and die when the secret changes. Players imported from the CLI have no secret yet and remain open until their first web login forces them to create one. A locked-out kid can notify the game developers from the login screen; a parent resets with `POST /api/v1/players/{id}/secret/reset` (gated by `SYNC_TOKEN` when set).
 - **Rate limiting** (in-memory, per IP): 240 req/min globally, 5 login attempts/min per player, 5 new profiles/hour, and hourly caps on the endpoints that spend MiniMax credits (session starts, challenges, AI probes).

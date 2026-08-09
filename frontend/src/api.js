@@ -58,6 +58,12 @@ export const api = {
       body: JSON.stringify({ secret, hint }),
     }),
   lockout: (id) => req(`/api/v1/players/${id}/lockout`, { method: 'POST' }),
+  logout: (id) => req(`/api/v1/players/${id}/logout`, { method: 'POST' }),
+  rename: (id, name) =>
+    req(`/api/v1/players/${id}/name`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
   getPlayer: (id) => req(`/api/v1/players/${id}`),
   startQuest: (id) =>
     req(`/api/v1/players/${id}/quest`, {
@@ -102,6 +108,8 @@ const adminHeaders = (key) => (key ? { Authorization: `Bearer ${key}` } : {})
 
 export const admin = {
   reports: (key) => req('/api/v1/reports', { headers: adminHeaders(key) }),
+  activity: (key, days = 14) =>
+    req(`/api/v1/activity?days=${days}`, { headers: adminHeaders(key) }),
   clear: (key) => req('/api/v1/reports', { method: 'DELETE', headers: adminHeaders(key) }),
   resetSecret: (pid, key) =>
     req(`/api/v1/players/${pid}/secret/reset`, {

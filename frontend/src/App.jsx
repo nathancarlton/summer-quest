@@ -147,7 +147,15 @@ export default function App() {
     setScreen('home')
   }
 
-  const switchPlayer = () => {
+  const switchPlayer = async () => {
+    // Tell the server first (revokes this device's token and closes the
+    // session in the parent view), then clear locally either way — a failed
+    // logout call must never trap a kid in someone else's account.
+    if (player) {
+      try {
+        await api.logout(player.id)
+      } catch { /* offline or already expired — local sign-out still stands */ }
+    }
     localStorage.removeItem(STORED_ID)
     setToken(null)
     setPlayer(null)
@@ -205,6 +213,7 @@ export default function App() {
       <Stats
         player={player}
         onEditFavorites={() => setScreen('favorites')}
+        onRenamed={setPlayer}
         onBack={() => setScreen('home')}
       />
     )
