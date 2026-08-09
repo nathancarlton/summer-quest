@@ -86,7 +86,12 @@ option the longest one.
 At least one question should be type "short" (a one-sentence written answer). \
 Short-answer tasks must be PRECISELY gradable: state exactly what to produce, \
 and never ask for something with no correct form (e.g., a list needs THREE OR \
-MORE items to demonstrate commas — never ask for "two items in a list").
+MORE items to demonstrate commas — never ask for "two items in a list"). \
+When the task asks the student to supply their own examples (any "write three \
+…", "use it in a sentence"), the question must name every requirement being \
+graded (how many items, what kind, the punctuation to use), because "answer" \
+can only be a SAMPLE response there — countless different answers are equally \
+correct, and the student will not reproduce yours.
 For any "reading" question, include a 3-5 sentence original passage in "passage".
 
 Each JSON object:
@@ -444,24 +449,114 @@ def _safe_batch(prompt):
 # Writing/mechanics answers are graded exactly; meaning-based answers generously.
 _MECHANICS = {"writing_mechanics", "grammar"}
 
+# OPEN-ENDED tasks ask the learner to invent their own content ("write three
+# kinds of space objects", "write a sentence using 'brave'"). The stored answer
+# is then just ONE valid sample, and grading against it word-by-word marks
+# perfectly good answers wrong — which is exactly what happened to a comma
+# task whose sample read "planets, moons, and asteroids": a learner who wrote
+# "a star, a planet, and a moon" was told to swap in the sample's nouns.
+# "Rewrite…" deliberately does NOT match (\b won't fire mid-word) — rewriting a
+# given sentence has one right answer.
+_OPEN_ENDED_RE = re.compile(
+    r"\b(?:write|list|name|give|provide|share|think of|come up with)\b[^.?!]{0,60}"
+    r"\b(?:two|three|four|five|2|3|4|5|a few|several|some)\b"
+    r"|\b(?:write|give|name|list|come up with)\b[^.?!]{0,30}"
+    r"\b(?:an?|one|your)\s+(?:own\s+)?(?:example|sentence|word|idea|phrase|reason)"
+    r"|\byour own\b",
+    re.IGNORECASE,
+)
+
+
+def _is_open_ended(question_text):
+    """True when the learner supplies the content, so the stored answer is one
+    acceptable response rather than the target."""
+    return bool(_OPEN_ENDED_RE.search(question_text or ""))
+
+
+# How many items the task asked for ("three or more pizza toppings").
+_ASK_COUNT_RE = re.compile(
+    r"\b(?:write|list|name|give|provide|share|think of|come up with)\b[^.?!]{0,60}?"
+    r"\b(two|three|four|five|2|3|4|5)\b(\s+or\s+more)?",
+    re.IGNORECASE,
+)
+_WORD_NUMBERS = {"two": 2, "three": 3, "four": 4, "five": 5,
+                 "2": 2, "3": 3, "4": 4, "5": 5}
+
+
+def _asked_count(question_text):
+    """(minimum items, or_more) the question demands, or (None, False)."""
+    m = _ASK_COUNT_RE.search(question_text or "")
+    if not m:
+        return None, False
+    return _WORD_NUMBERS.get(m.group(1).lower()), bool(m.group(2))
+
+
+def _itemize(student_answer):
+    """Split a written list into its items. Counting is the one part of this
+    job a language model reliably gets wrong — a learner who wrote
+    'Pepperoni, cheese ,and sosage' was told they had listed only two — so we
+    do it in code and hand the grader the count as a fact.
+
+    Splitting on "and" can over-count a compound item ("bacon and eggs, toast,
+    juice" reads as four). That errs toward crediting the learner, which is the
+    right direction to be wrong in on a task this open-ended."""
+    parts = re.split(r",|\band\b|;", student_answer or "")
+    items = []
+    for part in parts:
+        # Drop a leading sentence frame ("She could find a star" -> "a star").
+        part = re.sub(r"^\s*(?:[A-Za-z' ]{0,40}?\b(?:find|study|see|use|are|is|be|"
+                      r"include|pack|choose|pick)\b)\s*", "", part.strip(), count=1,
+                      flags=re.IGNORECASE)
+        part = part.strip(" .!?\"'")
+        if part:
+            items.append(part)
+    return items
+
+
 _RUBRIC_EXACT = (
-    "This is a WRITING-MECHANICS task. Compare the student's answer to the model "
-    "word by word. Check capitalization, punctuation, spelling, AND every word — "
-    "a missing or changed word (like a dropped 'the') is an error. Mark correct=true "
-    "ONLY if all mechanics and wording are right; otherwise correct=false."
+    "This is a WRITING-MECHANICS task with ONE correct form. Compare the student's "
+    "answer to the model word by word. Check capitalization, punctuation, spelling, "
+    "AND every word — a missing or changed word (like a dropped 'the') is an error. "
+    "Mark correct=true ONLY if all mechanics and wording are right; otherwise "
+    "correct=false."
 )
 _RUBRIC_MEANING = (
     "Grade generously on MEANING — accept reasonable paraphrases and partial "
     "understanding. Focus on whether the idea is right, not exact wording."
 )
+_RUBRIC_OPEN_MECHANICS = (
+    "This task asks the student to INVENT their own content and present it in a "
+    "particular form. The answer on file is ONE possible response; the student's "
+    "items will be different, and that is exactly what should happen — an item it "
+    "does not contain is not an error, and an item it contains that the student "
+    "omitted is not a missing answer.\n"
+    "Mark correct=true when the student's list has enough items of the right kind "
+    "and its punctuation is right. What counts as an error: a misspelled word the "
+    "student wrote; a missing comma between items; a space before a comma; too few "
+    "items. What is NOT an error: different items than the ones on file; the serial "
+    "comma style \"a, b, and c\" (both that and \"a, b, c\" are correct); capitalizing "
+    "the first word of an answer; a natural sentence frame such as \"She could find "
+    "a star, a planet, and a moon\"."
+)
+_RUBRIC_OPEN_MEANING = (
+    "This task asks the student to INVENT their own content. The model answer is ONE "
+    "sample among many correct ones. Judge only whether the student's answer does "
+    "what the question asked (the right number of items, of the right kind, sensible "
+    "for the topic). Never require it to match the model."
+)
 
 GRADE_PROMPT = """A {grade} student answered a practice question. Category: {category}.
 
 Question: {question}
-{passage_block}Model answer: {expected}
+{passage_block}{answer_label}{expected}
 Student's answer: {student}
-
+{item_check}
 {rubric}
+
+The student never sees the answer on file, so your feedback must NEVER mention \
+"the model", "the model answer", "the official answer", the format it uses, or \
+anything it happens to contain. Talk only about the student's own answer and what \
+the question asked for.
 
 Read the student's answer CAREFULLY and completely — do not overlook any mistake. \
 Be warm and encouraging, but honest: name EVERY specific fix needed so nothing \
@@ -469,6 +564,9 @@ slips by (if you say "great job", still list what's wrong).
 First sanity-check the QUESTION itself: if it is ambiguous or flawed and the \
 student's answer is a reasonable reading of it, give the student the benefit of \
 the doubt and mark correct=true.
+If the student's answer does everything the question asked for, mark correct=true \
+even when it looks nothing like the answer on file, and never tell a student to \
+change a correct answer so it matches that one.
 Return ONLY JSON: {{"correct": true|false, "feedback": "2-3 encouraging, specific \
 sentences that celebrate what's right and clearly point out each thing to fix."}}"""
 
@@ -480,7 +578,7 @@ may be flawed or ambiguous. If the question is flawed, or the student's answer i
 a defensible reading of it, rule FOR the student.
 
 Question: {question}
-{passage_block}{options_block}Official answer: {expected}
+{passage_block}{options_block}{answer_label}{expected}
 Student's answer: {student}
 Feedback the student received: {feedback}
 
@@ -507,6 +605,10 @@ def challenge_grading(question, student_answer, original_feedback=""):
                     question=question["question"],
                     passage_block=passage_block,
                     options_block=options_block,
+                    answer_label=_answer_label(
+                        not question.get("options")
+                        and _is_open_ended(question.get("question", ""))
+                    ),
                     expected=question["answer"],
                     student=student_answer,
                     feedback=original_feedback or "(none recorded)",
@@ -520,12 +622,42 @@ def challenge_grading(question, student_answer, original_feedback=""):
     return bool(result.get("student_is_right")), result.get("message", "")
 
 
+def _answer_label(open_ended):
+    """How the stored answer is introduced to the grader. Naming it one
+    POSSIBLE answer is half the fix on its own — 'Model answer' invites
+    matching, and the phrase leaked into kid-facing feedback ("to match the
+    model's format"), which means nothing to an 11-year-old."""
+    return ("One possible answer (many completely different answers are equally "
+            "correct): " if open_ended else "Answer on file: ")
+
+
+def _item_check(question_text, student_answer):
+    """A counted-in-code inventory of the learner's list, handed to the grader
+    as fact. Empty string when the task isn't a list task."""
+    want, or_more = _asked_count(question_text)
+    if not want:
+        return ""
+    items = _itemize(student_answer)
+    if not items:
+        return ""
+    listed = "; ".join(f'"{i}"' for i in items[:12])
+    return (f"\nITEM CHECK (counted mechanically — treat as fact, never dispute it): "
+            f"the student listed {len(items)} item(s): {listed}. "
+            f"The question asked for {want}{' or more' if or_more else ''}. "
+            f"By this count the requirement is "
+            f"{'MET' if len(items) >= want else 'NOT met'}.")
+
+
 def grade_short_answer(question, student_answer):
     passage_block = (
         f"Passage: {question['passage']}\n" if question.get("passage") else ""
     )
     category = question.get("category", "")
-    rubric = _RUBRIC_EXACT if category in _MECHANICS else _RUBRIC_MEANING
+    open_ended = _is_open_ended(question.get("question", ""))
+    if category in _MECHANICS:
+        rubric = _RUBRIC_OPEN_MECHANICS if open_ended else _RUBRIC_EXACT
+    else:
+        rubric = _RUBRIC_OPEN_MEANING if open_ended else _RUBRIC_MEANING
     text = _chat(
         [
             {
@@ -535,8 +667,11 @@ def grade_short_answer(question, student_answer):
                     category=category or "short answer",
                     question=question["question"],
                     passage_block=passage_block,
+                    answer_label=_answer_label(open_ended),
                     expected=question["answer"],
                     student=student_answer,
+                    item_check=_item_check(question.get("question", ""),
+                                           student_answer) if open_ended else "",
                     rubric=rubric,
                 ),
             }

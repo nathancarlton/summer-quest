@@ -82,6 +82,13 @@ Not commitments; a place so good ideas stop living in chat scrollback.
 - **Activity logging writes on session boundaries only** (login/logout,
   start/finish, chapter open) — never per answer. The answer path's latency
   is the thing users feel; don't add store writes to it.
+- **Open-ended written tasks** ("write three X, separated by commas") are
+  detected in `quest/ai.py` (`_is_open_ended`) and graded against the TASK,
+  not the stored answer — which is one of many valid responses. Anything
+  countable is counted in Python (`_item_check`) and given to the grader as
+  fact; grader feedback must never mention the answer on file. If MiniMax
+  keeps fumbling these, the lever is the generation prompt: stop asking for
+  learner-invented content and keep short answers determinate.
 - **Never generate questions client-side or ship answers to the browser**;
   grading, auth, and rate limits live server-side. Favorites stay impersonal
   (things, never people). New AI question paths must go through the

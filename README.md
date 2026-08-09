@@ -281,6 +281,19 @@ Generated questions go through several layers before they're servable:
    background sweep audits and flags older pool entries the next time the
    pool is touched, falling back to the hand-curated offline bank meanwhile.
 
+**Grading open-ended writing tasks.** When a task asks the learner to supply
+their own content ("write three kinds of space objects, separating each with a
+comma"), the stored answer is only one of countless correct responses.
+Grading it as the target produced real nonsense — a learner who wrote "a star,
+a planet, and a moon" was instructed to swap in the stored answer's nouns — so
+those tasks are detected and graded differently: the answer is introduced as
+one possible response, the rubric grades the mechanics being taught and
+whether the content fits the request (never which items were chosen), and the
+number of items the learner listed is **counted in Python** and handed to the
+grader as fact, because counting is the part language models reliably flub.
+Feedback may never reference the answer on file — the learner can't see it,
+and "to match the model's format" means nothing to an 11-year-old.
+
 If something still slips through, a learner can hit "⚖️ Challenge it" on a
 wrong ruling: a third independent AI pass re-evaluates — told explicitly that
 the question or the original grader may be wrong — and pays XP retroactively
