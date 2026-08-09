@@ -1,14 +1,18 @@
 import { useState } from 'react'
 import { THEMES, applyTheme, savedTheme } from './theme.js'
 
-export default function ThemePicker() {
+export default function ThemePicker({ compact = false }) {
   const [theme, setTheme] = useState(savedTheme())
   const choose = (key) => {
     applyTheme(key)
     setTheme(key)
   }
   return (
-    <div className="theme-picker" role="group" aria-label="Color theme">
+    <div
+      className={`theme-picker${compact ? ' compact' : ''}`}
+      role="group"
+      aria-label="Color theme"
+    >
       {THEMES.map((t) => (
         <button
           key={t.key}

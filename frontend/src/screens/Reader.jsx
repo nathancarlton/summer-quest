@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
+import ThemePicker from '../ThemePicker.jsx'
 
 // Chapter reader. Opening a chapter starts its quiz brewing in the
 // background; by the time the kid reaches the bottom, the quiz is
@@ -63,6 +64,7 @@ export default function Reader({ player, book, chapter, onQuiz, onNavigate, onBa
     <div className="shell">
       <div className="quest-top" ref={topRef}>
         <button className="link" onClick={onBack}>← Library</button>
+        <ThemePicker compact />
         <span className="q-cat">
           Chapter {data.index + 1}/{data.chapters}
           {data.quizzed && ' · 📝 quizzed'}

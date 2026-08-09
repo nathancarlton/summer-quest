@@ -4,6 +4,7 @@ export const THEMES = [
   { key: 'ocean', label: 'Ocean', dot: 'linear-gradient(135deg, #7dd3fc, #818cf8)' },
   { key: 'forest', label: 'Forest', dot: 'linear-gradient(135deg, #86efac, #5eead4)' },
   { key: 'midnight', label: 'Midnight', dot: 'linear-gradient(135deg, #312e81, #4c1d95)' },
+  { key: 'paperback', label: 'Paperback', dot: 'linear-gradient(135deg, #f3e5c8, #c9a878)' },
 ]
 
 const STORED_THEME = 'sq_theme'
