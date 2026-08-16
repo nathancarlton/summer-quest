@@ -14,3 +14,8 @@ frontend/.env
 frontend/.env.local
 .vercel/
 .env.local
+
+# business planning — deliberately NOT published; this repo is public, and
+# pricing, unit economics and competitive assessments shouldn't be. Keep your
+# own copy outside the repo; git history is forever if it ever lands here.
+BUSINESS.md
